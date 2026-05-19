@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# Secrets
+firebase_key.json
+backend/firebase_key.json
+
+# Node/React (frontend)
+node_modules/
+build/
+dist/
+.DS_Store
