@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_BASE = "https://ai-personal-assistant-05rw.onrender.com"
+const API_BASE = "https://ai-personal-assistant-1-e2iq.onrender.com"
 
 function App() {
   const [message, setMessage] = useState("");
