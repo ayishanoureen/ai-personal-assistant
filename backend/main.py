@@ -524,34 +524,30 @@ else:
 db = None
 firebase_initialized = False
 
-possible_key_paths = [
-    os.getenv("FIREBASE_KEY_PATH", ""),
-    "firebase_key.json",
-    "backend/firebase_key.json",
-    "../firebase_key.json"
-]
+try:
+    firebase_credentials = os.getenv("FIREBASE_CREDENTIALS")
 
-firebase_key_path = None
-for path in possible_key_paths:
-    if path and os.path.exists(path):
-        firebase_key_path = path
-        break
+    if firebase_credentials:
+        cred_dict = json.loads(firebase_credentials)
 
-if firebase_key_path:
-    try:
-        logger.info(f"Initializing Firebase with key from: {firebase_key_path}")
-        cred = credentials.Certificate(firebase_key_path)
+        cred = credentials.Certificate(cred_dict)
+
         firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        logger.info(f"Successfully connected to Firestore project: {firebase_admin.get_app().project_id}")
-        firebase_initialized = True
-    except Exception as e:
-        logger.error(f"Failed to initialize Firebase with key {firebase_key_path}: {e}")
-        logger.warning("Bypassing Firestore. Chat history will NOT be saved to database.")
-else:
-    logger.warning("Firebase service account key (firebase_key.json) not found in any of the expected paths.")
-    logger.warning("Bypassing Firestore. Chat history will NOT be saved to database.")
 
+        db = firestore.client()
+
+        firebase_initialized = True
+
+        logger.info(
+            f"Successfully connected to Firestore project: "
+            f"{firebase_admin.get_app().project_id}"
+        )
+
+    else:
+        logger.warning("FIREBASE_CREDENTIALS environment variable not found.")
+
+except Exception as e:
+    logger.error(f"Firebase initialization failed: {e}")
 app = FastAPI(
     title="AI Personal Assistant API",
     description="Backend API for AI Personal Assistant with Gemini and Firestore integration.",
