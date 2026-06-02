@@ -1649,3 +1649,6 @@ def clear_memory():
         db.collection("user_memory").document("default_user").delete()
         return {"status": "success", "message": "Memory cleared"}
     return {"status": "error", "message": "Firebase not available"}
+@app.on_event("startup")
+async def startup_event():
+    logger.info("SERVER STARTED SUCCESSFULLY")
