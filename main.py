@@ -515,6 +515,9 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 print("API KEY:", os.getenv("GEMINI_API_KEY"))
+print("===== DEBUG START =====")
+print("GEMINI_API_KEY exists:", bool(os.getenv("GEMINI_API_KEY")))
+print("===== DEBUG END =====")
 
 if not GEMINI_API_KEY:
     logger.warning("GEMINI_API_KEY is not set in environment variables! Gemini requests will fail.")
