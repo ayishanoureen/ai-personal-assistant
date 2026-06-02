@@ -1,12 +1,26 @@
-# virtual environment
-venv/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 
-# environment variables
+# Virtual environments
+venv/
+env/
+
+# Environment variables
 .env
 
-# firebase secret key
+# Secrets
 firebase_key.json
+backend/firebase_key.json
 
-# python cache
-__pycache__/
+# Python cache
 *.pyc
+
+# Node/React (frontend)
+node_modules/
+build/
+dist/
+
+# OS files
+.DS_Store
