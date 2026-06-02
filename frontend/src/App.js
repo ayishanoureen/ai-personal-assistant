@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = process.env.REACT_APP_API_BASE;
 
 function App() {
   const [message, setMessage] = useState("");
@@ -15,6 +15,7 @@ function App() {
   const [selectedImage, setSelectedImage] = useState(null);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const sendToBackendRef = useRef(null);
 
 
   const [reminders, setReminders] = useState([]);
@@ -187,7 +188,8 @@ function App() {
   const recognitionRef = useRef(null);
   const voiceTimeoutRef = useRef(null);
   const isSendingRef = useRef(false);
-
+  const voiceCooldownRef = useRef(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!SpeechRecognition) return;
 
@@ -217,35 +219,32 @@ function App() {
     };
 
     recognition.onresult = (event) => {
-      if (isLoading || isSendingRef.current) return;
+      if (isLoading || isSendingRef.current || voiceCooldownRef.current) return;
 
       const transcript = event.results[0][0].transcript;
-      if (!transcript.trim()) return;
 
-      console.log("Voice Input:", transcript);
+      voiceCooldownRef.current = true;
+
+      setTimeout(() => {
+        voiceCooldownRef.current = false;
+      }, 1500);
 
       setMessage(transcript);
 
-      if (voiceTimeoutRef.current) {
-        clearTimeout(voiceTimeoutRef.current);
-      }
-
-      voiceTimeoutRef.current = setTimeout(async () => {
-        if (!isSendingRef.current && !isLoading) {
-          await sendToBackend(transcript);
-        }
-      }, 500);
+      sendToBackendRef.current?.(transcript, selectedImage);
     };
 
     recognitionRef.current = recognition;
 
     return () => {
-      recognition.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
       if (voiceTimeoutRef.current) {
         clearTimeout(voiceTimeoutRef.current);
       }
     };
-  }, []);
+  }, [isLoading, selectedImage]);
 
 
   const startListening = () => {
@@ -262,28 +261,27 @@ function App() {
   const sendMessage = async (e) => {
     if (e) e.preventDefault();
     if ((!message.trim() && !selectedImage) || isLoading || isSendingRef.current) return;
-    await sendToBackend(message);
+    await sendToBackendRef.current?.(message, selectedImage);
   };
 
-  const sendToBackend = async (text) => {
+  const sendToBackend = useCallback(async (text, image) => {
     if (isSendingRef.current) return;
     isSendingRef.current = true;
 
-    const userMessage = text.trim();
-    const updatedChat = [
-      ...chat,
+    const userMessage = (text || "").trim();
+    setChat(prev => [
+      ...prev,
       { sender: "user", text: userMessage || "📷 Image Uploaded" }
-    ];
+    ]);
 
-    setChat(updatedChat);
     setMessage("");
     setIsLoading(true);
 
     try {
       const formData = new FormData();
       formData.append("message", userMessage);
-      if (selectedImage) {
-        formData.append("image", selectedImage, selectedImage.name);
+      if (image) {
+        formData.append("image", image, image.name);
       }
       const response = await axios.post(
         `${API_BASE}/chat`,
@@ -298,8 +296,8 @@ function App() {
 
       if (response.data && response.data.reply) {
         const aiReply = response.data.reply;
-        setChat([
-          ...updatedChat,
+        setChat(prev => [
+          ...prev,
           {
             sender: "ai",
             text: aiReply
@@ -328,8 +326,8 @@ function App() {
         errorText = error.response.data.reply;
       }
 
-      setChat([
-        ...updatedChat,
+      setChat(prev => [
+        ...prev,
         {
           sender: "ai",
           text: errorText,
@@ -344,7 +342,10 @@ function App() {
       }
       isSendingRef.current = false;
     }
-  };
+  }, [selectedImage, fetchDashboard, speakText]);
+  useEffect(() => {
+    sendToBackendRef.current = sendToBackend;
+  }, [sendToBackend]);
 
   return (
     <div className="container">
