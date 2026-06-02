@@ -16,6 +16,7 @@ function App() {
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const sendToBackendRef = useRef(null);
+  const transcriptRef = useRef("");
 
 
   const [reminders, setReminders] = useState([]);
@@ -39,7 +40,7 @@ function App() {
 
   const fetchReminders = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE}/reminders`);
+      const res = await axios.get(`${API_BASE}/reminders?t=${Date.now()}`);
       setReminders(res.data.reminders || []);
     } catch (err) {
       console.error("Error fetching reminders:", err);
@@ -48,7 +49,7 @@ function App() {
 
   const fetchNotes = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE}/notes`);
+      const res = await axios.get(`${API_BASE}/notes?t=${Date.now()}`);
       setNotes(res.data.notes || []);
     } catch (err) {
       console.error("Error fetching notes:", err);
@@ -195,9 +196,9 @@ function App() {
 
     const recognition = new SpeechRecognition();
 
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.lang = "en-US";
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
@@ -206,13 +207,29 @@ function App() {
 
     recognition.onend = () => {
       setIsListening(false);
+      if (voiceTimeoutRef.current) {
+        clearTimeout(voiceTimeoutRef.current);
+      }
+
+      const finalSpeech = transcriptRef.current.trim();
+      if (finalSpeech && !isLoading && !isSendingRef.current) {
+        if (voiceCooldownRef.current) return;
+        voiceCooldownRef.current = true;
+        setTimeout(() => {
+          voiceCooldownRef.current = false;
+        }, 1500);
+
+        sendToBackendRef.current?.(finalSpeech, selectedImage);
+      }
     };
 
     recognition.onerror = (event) => {
       console.error("Speech Recognition Error:", event.error);
 
       if (event.error === "no-speech") {
-        alert("No speech detected. Please try again");
+        if (!transcriptRef.current.trim()) {
+          alert("No speech detected. Please try again");
+        }
       }
 
       setIsListening(false);
@@ -221,17 +238,21 @@ function App() {
     recognition.onresult = (event) => {
       if (isLoading || isSendingRef.current || voiceCooldownRef.current) return;
 
-      const transcript = event.results[0][0].transcript;
+      let completeTranscript = "";
+      for (let i = 0; i < event.results.length; ++i) {
+        completeTranscript += event.results[i][0].transcript;
+      }
 
-      voiceCooldownRef.current = true;
+      transcriptRef.current = completeTranscript;
+      setMessage(completeTranscript);
 
-      setTimeout(() => {
-        voiceCooldownRef.current = false;
-      }, 1500);
-
-      setMessage(transcript);
-
-      sendToBackendRef.current?.(transcript, selectedImage);
+      // Reset the silence timeout
+      if (voiceTimeoutRef.current) {
+        clearTimeout(voiceTimeoutRef.current);
+      }
+      voiceTimeoutRef.current = setTimeout(() => {
+        recognition.stop();
+      }, 1500); // Stop listening after 1.5 seconds of silence
     };
 
     recognitionRef.current = recognition;
@@ -255,7 +276,15 @@ function App() {
 
     if (isListening || isLoading || isSendingRef.current) return;
 
+    transcriptRef.current = "";
+    setMessage("");
     recognitionRef.current.start();
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+    }
   };
 
   const sendMessage = async (e) => {
@@ -307,8 +336,9 @@ function App() {
 
         // Sync dashboard after reminder/note actions
         const title = (aiReply.title || "").toLowerCase();
-        if (title.includes("reminder") || title.includes("note")) {
-          setTimeout(() => fetchDashboard(), 500);
+        const dbUpdated = response.data.db_updated || title.includes("reminder") || title.includes("note");
+        if (dbUpdated) {
+          fetchDashboard();
         }
       } else {
         throw new Error("Invalid response format from server");
@@ -401,7 +431,12 @@ function App() {
         <button type="submit" disabled={(!selectedImage && !message.trim()) || isLoading}>
           {isLoading ? "Sending..." : "Send"}
         </button>
-        <button type="button" onClick={startListening} disabled={isListening}>
+        <button
+          type="button"
+          onClick={isListening ? stopListening : startListening}
+          className={isListening ? "mic-active" : ""}
+          title={isListening ? "Stop listening" : "Start listening"}
+        >
           🎤
         </button>
         <button type="button" onClick={() => setIsMuted(!isMuted)}>

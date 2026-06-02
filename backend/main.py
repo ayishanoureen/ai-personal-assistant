@@ -692,6 +692,7 @@ async def chat(
     message: str = Form(""),
     image: UploadFile = File(None)
 ):
+    db_updated = False
     user_message = message.strip()
     
     if not user_message and not image:
@@ -828,7 +829,8 @@ async def chat(
                 }
                 return {
                     "reply": ai_reply,
-                    "status": "success"
+                    "status": "success",
+                    "db_updated": False
                 }
 
             if firebase_initialized and db:
@@ -839,6 +841,7 @@ async def chat(
                     "created_at": firestore.SERVER_TIMESTAMP
                 })    
                 logger.info(f"[REMINDER_CREATED] Text: '{reminder_text}', Date: '{reminder_date}', Time: '{reminder_time}'")
+                db_updated = True
 
             ai_reply = {
                 "title": "Reminder Saved",
@@ -853,7 +856,8 @@ async def chat(
 
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
 
         elif intent == "get_reminders":
@@ -987,7 +991,8 @@ async def chat(
 
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": False
             }
 
         elif intent == "summarize_and_save":
@@ -1000,7 +1005,8 @@ async def chat(
                 }
                 return {
                     "reply": ai_reply,
-                    "status": "error"
+                    "status": "error",
+                    "db_updated": False
                 }
             summary = await summarize_text_with_gemini(cleaned_text)
             if not summary:
@@ -1011,7 +1017,8 @@ async def chat(
                 }
                 return {
                     "reply": ai_reply,
-                    "status": "error"
+                    "status": "error",
+                    "db_updated": False
                 }
             if firebase_initialized and db:
                 db.collection("notes").add({
@@ -1020,6 +1027,7 @@ async def chat(
                     "type": "summary",
                     "created_at": firestore.SERVER_TIMESTAMP
                 })
+                db_updated = True
             ai_reply = {
                 "title": "Summary Saved",
                 "summary": "Text summarized and saved successfully.",
@@ -1028,7 +1036,8 @@ async def chat(
             background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
         elif intent == "extract_text_and_save_note":
             model = genai.GenerativeModel(GEMINI_MODEL)
@@ -1044,6 +1053,7 @@ async def chat(
                     "type": "image_note",
                     "created_at": firestore.SERVER_TIMESTAMP
                 })
+                db_updated = True
             ai_reply ={
                 "title": "Note Saved",
                 "summary": "Your extracted text note was saved successfully.",
@@ -1052,7 +1062,8 @@ async def chat(
             background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
         elif intent == "save_note":
             if firebase_initialized and db:
@@ -1060,6 +1071,7 @@ async def chat(
                     "content": user_message,
                     "created_at": firestore.SERVER_TIMESTAMP
                 })
+                db_updated = True
             ai_reply = {
                 "title": "Note Saved",
                 "summary": "Your note was saved successfully",
@@ -1070,7 +1082,8 @@ async def chat(
 
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
             
         elif intent == "get_notes":
@@ -1098,7 +1111,8 @@ async def chat(
 
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": False
             }
 
         elif intent == "delete_all_reminders":
@@ -1108,6 +1122,8 @@ async def chat(
                 for doc in docs:
                     doc.reference.delete()
                     deleted_count += 1
+                if deleted_count > 0:
+                    db_updated = True
 
             ai_reply = {
                 "title": "Reminders Deleted",
@@ -1116,7 +1132,8 @@ async def chat(
             }
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
 
         elif intent == "delete_all_notes":
@@ -1126,6 +1143,8 @@ async def chat(
                 for doc in docs:
                     doc.reference.delete()
                     deleted_count += 1
+                if deleted_count > 0:
+                    db_updated = True
 
             ai_reply = {
                 "title": "Notes Deleted",
@@ -1134,7 +1153,8 @@ async def chat(
             }
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
 
         elif intent == "delete_single_reminder":
@@ -1250,7 +1270,8 @@ async def chat(
                         background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
                         return {
                             "reply": ai_reply,
-                            "status": "success"
+                            "status": "success",
+                            "db_updated": False
                         }
                     
                     if extracted_time:
@@ -1272,6 +1293,7 @@ async def chat(
                         
                         doc_to_delete.delete()
                         deleted_count = 1
+                        db_updated = True
                         logger.info(f"[REMINDER_DELETED] Deleted reminder: Text: '{deleted_text}', Time: '{deleted_time}'")
                 except Exception as db_err:
                     logger.error(f"Error deleting reminder: {db_err}")
@@ -1293,7 +1315,8 @@ async def chat(
                 }
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
 
         elif intent == "delete_single_note":
@@ -1309,6 +1332,7 @@ async def chat(
                     if search_text in data.get("content", "").lower():
                         doc.reference.delete()
                         deleted_count += 1
+                        db_updated = True
                         break
 
             if deleted_count > 0:
@@ -1325,7 +1349,8 @@ async def chat(
                 }
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": db_updated
             }
         elif intent == "extract_tasks_from_image" and pil_image:
             model = genai.GenerativeModel(GEMINI_MODEL)
@@ -1346,7 +1371,8 @@ Return ONLY JSON:
             background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
             return {
                 "reply": ai_reply,
-                "status": "success"
+                "status": "success",
+                "db_updated": False
             }
 
         model = genai.GenerativeModel(GEMINI_MODEL)
@@ -1381,7 +1407,8 @@ Known User Information:
 
         return {
             "reply": ai_reply,
-            "status": "success"
+            "status": "success",
+            "db_updated": False
         }
 
     except asyncio.TimeoutError as e:
@@ -1393,7 +1420,8 @@ Known User Information:
         }
         return {
             "reply": ai_reply,
-            "status": "success"
+            "status": "success",
+            "db_updated": False
         }
 
     except Exception as e:
@@ -1405,7 +1433,8 @@ Known User Information:
         }
         return {
             "reply": ai_reply,
-            "status": "success"
+            "status": "success",
+            "db_updated": False
         }
 
 
