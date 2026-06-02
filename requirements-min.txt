@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-dotenv
+requests
+gTTS==2.5.3
+click==8.1.7
+firebase-admin
+google-generativeai
