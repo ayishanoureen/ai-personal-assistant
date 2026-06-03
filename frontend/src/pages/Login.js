@@ -8,7 +8,7 @@ export default function Login() {
     const handleLogin = async () => {
         try {
             const user = await loginWithGoogle();
-            const token = await user.getIdToken();
+            const token = await user.getIdToken(true);
 
             localStorage.setItem("token", token);
             navigate("/");

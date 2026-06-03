@@ -74,6 +74,11 @@ export default function Home() {
         fetchDashboard();
     }, [fetchDashboard]);
 
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+    };
+
     const showDashboardMsg = (msg) => {
         setDashboardMsg(msg);
         setTimeout(() => setDashboardMsg(""), 3000);
@@ -391,6 +396,9 @@ export default function Home() {
     return (
         <div className="container">
             <h1>AI Personal Assistant</h1>
+            <button onClick={handleLogout} className="logout-btn">
+                🚪 Logout
+            </button>
             <div className="chat-box">
                 {chat.map((msg, index) => (
                     <div
