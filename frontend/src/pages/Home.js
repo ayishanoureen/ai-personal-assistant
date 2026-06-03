@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import "./App.css";
+import "../App.css";
 import API from "../api/axios";
 
 export default function Home() {
@@ -15,7 +15,7 @@ export default function Home() {
     const fileInputRef = useRef(null);
     const sendToBackendRef = useRef(null);
     const transcriptRef = useRef("");
-    const hasSentRef = useRef(false);
+
 
 
     const [reminders, setReminders] = useState([]);
