@@ -440,13 +440,6 @@ def extract_reminder_details(message: str):
         flags=re.IGNORECASE
     )
 
-    task_text = re.sub(
-        r'\b(today|tomorrow|tonight|this morning|this evening)\b',
-        '',
-        task_text,
-        flags=re.IGNORECASE
-    )
-
     task_text = task_text.strip()
 
     date_part = parse_date_robustly(message)
@@ -481,6 +474,16 @@ def extract_reminder_details(message: str):
 
             date_part = future.strftime("%Y-%m-%d")
             time_part_clean = future.strftime("%I:%M %p")
+    # Remove date-related words from reminder text
+    task_text = re.sub(
+        r'\b(today|tomorrow|tonight|this morning|this evening)\b',
+        '',
+        task_text,
+        flags=re.IGNORECASE
+    )
+
+    # Clean extra spaces
+    task_text = re.sub(r'\s+', ' ', task_text).strip()
 
     return task_text, date_part, time_part_clean
 
