@@ -440,6 +440,13 @@ def extract_reminder_details(message: str):
         flags=re.IGNORECASE
     )
 
+    task_text = re.sub(
+        r'\b(today|tomorrow|tonight|this morning|this evening)\b',
+        '',
+        task_text,
+        flags=re.IGNORECASE
+    )
+
     task_text = task_text.strip()
 
     date_part = parse_date_robustly(message)
