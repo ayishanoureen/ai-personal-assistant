@@ -1,8 +1,18 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { loginWithGoogle } from "./firebase";
 import axios from "axios";
 import "./App.css";
 
 const API_BASE = "https://ai-personal-assistant-1-e2iq.onrender.com"
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  return config;
+});
 
 function App() {
   const [message, setMessage] = useState("");
@@ -28,7 +38,20 @@ function App() {
   const [editingNote, setEditingNote] = useState(null);
   const [editNoteContent, setEditNoteContent] = useState("");
   const [dashboardMsg, setDashboardMsg] = useState("");
+  const [user, setUser] = useState(null);
 
+  const handleLogin = async () => {
+    try {
+      const user = await loginWithGoogle();
+      const token = await user.getIdToken(true);
+
+      console.log("Logged in user:", user);
+      setUser(user);
+      localStorage.setItem("token", token);
+    } catch (err) {
+      console.error("Login failed:", err);
+    }
+  };
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -294,6 +317,12 @@ function App() {
   };
 
   const sendToBackend = useCallback(async (text, image) => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      alert("Please login first");
+      return;
+    }
     if (isSendingRef.current) return;
     isSendingRef.current = true;
 
@@ -317,7 +346,7 @@ function App() {
         formData,
         {
           headers: {
-            "Content-Type": "multipart/form-data",
+            "Content-Type": "multipart/form-data"
           },
           timeout: 180000,
         }
@@ -380,7 +409,13 @@ function App() {
   return (
     <div className="container">
       <h1>AI Personal Assistant</h1>
-
+      {!user ? (
+        <button onClick={handleLogin}>
+          Login with Google
+        </button>
+      ) : (
+        <p>Welcome, {user.displayName}</p>
+      )}
       <div className="chat-box">
         {chat.map((msg, index) => (
           <div

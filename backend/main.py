@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile, File, Form, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 from dotenv import load_dotenv
 import os
 import logging
@@ -14,6 +14,16 @@ import re
 import datetime
 import asyncio
 import difflib
+
+async def get_current_user(authorization: str = Header(None)):
+    if not authorization: 
+        raise HTTPException(401, "Not authenticated")
+    token = authorization.replace("Bearer ", "")
+    try:
+        decoded = auth.verify_id_token(token)
+        return decoded["uid"]
+    except Exception:
+        raise HTTPException(401, "Invaid token")
 
 def validate_gemini_response(response_dict: dict) -> dict:
     if not isinstance(response_dict, dict):
@@ -119,11 +129,11 @@ Text:
         logger.error(f"Summarization error: {e}")
         return None
 
-def save_user_memory(memory_data: dict):
+def save_user_memory(uid: str, memory_data: dict):
     if not firebase_initialized or not db:
         return {}
     try: 
-        doc_ref = db.collection("user_memory").document("default_user")
+        doc_ref = db.collection("users").document(uid).collection("memory").document("profile")
         existing_doc = doc_ref.get()
         old_memory = {}
         if existing_doc.exists:
@@ -136,12 +146,12 @@ def save_user_memory(memory_data: dict):
     except Exception as e:
         logger.error(f"Error saving user memory: {e}")
 
-def load_user_memory():
+def load_user_memory(uid: str):
 
     if not firebase_initialized or not db:
         return {}
     try:
-        doc_ref = db.collection("user_memory").document("default_user")
+        doc_ref = db.collection("users").document(uid).collection("memory").document("profile")
         doc = doc_ref.get()
         if doc.exists:
             return doc.to_dict()
@@ -169,6 +179,7 @@ Possible intents:
 - delete_single_note
 - delete_all_notes
 - summarize_and_save
+- extract_tasks_from_image
 - normal_chat
 
 IMPORTANT:
@@ -677,11 +688,11 @@ def home():
     }
 
 
-def save_to_firestore_bg(user_message: str, ai_reply: dict):
+def save_to_firestore_bg(uid: str, user_message: str, ai_reply: dict):
     if firebase_initialized and db:
         try:
             logger.info("Attempting to save conversation to Firestore in background task...")
-            db.collection("chat_history").add({
+            db.collection("users").document(uid).collection("chat_history").add({
                 "user_message": user_message,
                 "ai_reply": ai_reply,
                 "timestamp": firestore.SERVER_TIMESTAMP
@@ -696,7 +707,8 @@ def save_to_firestore_bg(user_message: str, ai_reply: dict):
 async def chat(
     background_tasks: BackgroundTasks,
     message: str = Form(""),
-    image: UploadFile = File(None)
+    image: UploadFile = File(None),
+    authorization: str = Header(None)
 ):
     db_updated = False
     user_message = message.strip()
@@ -744,6 +756,7 @@ async def chat(
             )
 
     try:
+        uid = await get_current_user(authorization)
         if image and ("note" in user_message.lower() and ("image" in user_message.lower() or "text" in user_message.lower() or "extract" in user_message.lower() or "convert" in user_message.lower())):
             intent = "extract_text_and_save_note"
         else: 
@@ -756,7 +769,7 @@ async def chat(
             
         memory_data  = await extract_memory_with_gemini(user_message)
         if memory_data:
-            save_user_memory(memory_data)
+            save_user_memory(uid, memory_data)
 
         if intent == "save_reminder":
             reminder_text, reminder_date, reminder_time = extract_reminder_details(user_message)
@@ -808,7 +821,7 @@ async def chat(
             is_duplicate = False
             if firebase_initialized and db: 
                 try:
-                    docs = db.collection("reminders").stream()
+                    docs = db.collection("users").document(uid).collection("reminders").stream()
                     for doc in docs:
                         data = doc.to_dict() or {}
                         db_text = data.get("text", "")
@@ -840,7 +853,7 @@ async def chat(
                 }
 
             if firebase_initialized and db:
-                db.collection("reminders").add({
+                db.collection("users").document(uid).collection("reminders").add({
                     "text": reminder_text,
                     "date": reminder_date,
                     "time": reminder_time,
@@ -858,7 +871,7 @@ async def chat(
                 ]
             }
 
-            background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+            background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
 
             return {
                 "reply": ai_reply,
@@ -875,7 +888,7 @@ async def chat(
 
             if firebase_initialized and db:
 
-                docs = db.collection("reminders").stream()
+                docs = db.collection("users").document(uid).collection("reminders").stream()
 
                 for doc in docs:
 
@@ -1027,7 +1040,7 @@ async def chat(
                     "db_updated": False
                 }
             if firebase_initialized and db:
-                db.collection("notes").add({
+                db.collection("users").document(uid).collection("notes").add({
                     "content": summary,
                     "original_text": cleaned_text,
                     "type": "summary",
@@ -1039,7 +1052,7 @@ async def chat(
                 "summary": "Text summarized and saved successfully.",
                 "details": [summary]
             }
-            background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+            background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
             return {
                 "reply": ai_reply,
                 "status": "success",
@@ -1054,7 +1067,7 @@ async def chat(
             response = await model.generate_content_async([prompt, pil_image])
             extracted_text = response.text.strip()
             if firebase_initialized and db:
-                db.collection("notes").add({
+                db.collection("users").document(uid).collection("notes").add({
                     "content": extracted_text,
                     "type": "image_note",
                     "created_at": firestore.SERVER_TIMESTAMP
@@ -1065,7 +1078,7 @@ async def chat(
                 "summary": "Your extracted text note was saved successfully.",
                 "details": [extracted_text]
             }
-            background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+            background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
             return {
                 "reply": ai_reply,
                 "status": "success",
@@ -1073,7 +1086,7 @@ async def chat(
             }
         elif intent == "save_note":
             if firebase_initialized and db:
-                db.collection("notes").add({
+                db.collection("users").document(uid).collection("notes").add({
                     "content": user_message,
                     "created_at": firestore.SERVER_TIMESTAMP
                 })
@@ -1084,7 +1097,7 @@ async def chat(
                 "details": [user_message]
             }
 
-            background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+            background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
 
             return {
                 "reply": ai_reply,
@@ -1097,7 +1110,7 @@ async def chat(
             notes = []
 
             if firebase_initialized and db:
-                docs = db.collection("notes").stream()
+                docs = db.collection("users").document(uid).collection("notes").stream()
 
                 for doc in docs:
                     data = doc.to_dict()
@@ -1124,7 +1137,7 @@ async def chat(
         elif intent == "delete_all_reminders":
             deleted_count = 0
             if firebase_initialized and db:
-                docs = db.collection("reminders").stream()
+                docs = db.collection("users").document(uid).collection("reminders").stream()
                 for doc in docs:
                     doc.reference.delete()
                     deleted_count += 1
@@ -1145,7 +1158,7 @@ async def chat(
         elif intent == "delete_all_notes":
             deleted_count = 0
             if firebase_initialized and db:
-                docs = db.collection("notes").stream()
+                docs = db.collection("users").document(uid).collection("notes").stream()
                 for doc in docs:
                     doc.reference.delete()
                     deleted_count += 1
@@ -1244,7 +1257,7 @@ async def chat(
                 try:
                     # Find all matches matching the task case-insensitively using fuzzy matching
                     matches = []
-                    docs = db.collection("reminders").stream()
+                    docs = db.collection("users").document(uid).collection("reminders").stream()
                     for doc in docs:
                         data = doc.to_dict() or {}
                         db_text = data.get("text", "")
@@ -1273,7 +1286,7 @@ async def chat(
                             "summary": f"I found multiple reminders matching '{extracted_task}'. Which one would you like to delete? Please specify the exact time.",
                             "details": match_details
                         }
-                        background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+                        background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
                         return {
                             "reply": ai_reply,
                             "status": "success",
@@ -1332,7 +1345,7 @@ async def chat(
             
             deleted_count = 0
             if firebase_initialized and db and search_text:
-                docs = db.collection("notes").stream()
+                docs = db.collection("users").document(uid).collection("notes").stream()
                 for doc in docs:
                     data = doc.to_dict()
                     if search_text in data.get("content", "").lower():
@@ -1374,7 +1387,7 @@ Return ONLY JSON:
             response = await asyncio.wait_for(model.generate_content_async([extraction_prompt, pil_image]), timeout=20.0)
             ai_reply = extract_json(response.text)
 
-            background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+            background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
             return {
                 "reply": ai_reply,
                 "status": "success",
@@ -1384,7 +1397,7 @@ Return ONLY JSON:
         model = genai.GenerativeModel(GEMINI_MODEL)
         contents = []
         system_prompt = get_system_prompt()
-        user_memory = load_user_memory()
+        user_memory = load_user_memory(uid)
         if user_memory:
             memory_text = """
 
@@ -1409,7 +1422,7 @@ Known User Information:
         raw_text = response.text
         ai_reply = extract_json(raw_text)
 
-        background_tasks.add_task(save_to_firestore_bg, user_message, ai_reply)
+        background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
 
         return {
             "reply": ai_reply,
@@ -1554,12 +1567,12 @@ def extract_day_filter(message: str) -> str | None:
 
 
 @app.get("/reminders")
-def get_all_reminders():
+def get_all_reminders(uid: str = Depends(get_current_user)):
     try:
         reminders = []
 
         if firebase_initialized and db:
-            docs = db.collection("reminders").stream()
+            docs = db.collection("users").document(uid).collection("reminders").stream()
 
             for doc in docs:
                 try:
@@ -1588,12 +1601,12 @@ def get_all_reminders():
 
 
 @app.get("/notes")
-def get_all_notes():
+def get_all_notes(uid: str = Depends(get_current_user)):
     try:
         notes = []
 
         if firebase_initialized and db:
-            docs = db.collection("notes").stream()
+            docs = db.collection("users").document(uid).collection("notes").stream()
 
             for doc in docs:
                 try:
@@ -1620,14 +1633,14 @@ def get_all_notes():
 
 
 @app.put("/reminders/{reminder_id}")
-def update_reminder(reminder_id: str, data: ReminderUpdate):
+def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(get_current_user)):
     if not firebase_initialized or not db:
         raise HTTPException(status_code=500, detail="Firestore not available")
     text = data.text.strip()
     time_val = data.time.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Reminder text cannot be empty")
-    doc_ref = db.collection("reminders").document(reminder_id)
+    doc_ref = db.collection("users").document(uid).collection("reminders").document(reminder_id)
     doc = doc_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Reminder not found")
@@ -1636,10 +1649,10 @@ def update_reminder(reminder_id: str, data: ReminderUpdate):
 
 
 @app.delete("/reminders/{reminder_id}")
-def delete_reminder(reminder_id: str):
+def delete_reminder(reminder_id: str, uid: str = Depends(get_current_user)):
     if not firebase_initialized or not db:
         raise HTTPException(status_code=500, detail="Firestore not available")
-    doc_ref = db.collection("reminders").document(reminder_id)
+    doc_ref = db.collection("users").document(uid).collection("reminders").document(reminder_id)
     doc = doc_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Reminder not found")
@@ -1648,13 +1661,13 @@ def delete_reminder(reminder_id: str):
 
 
 @app.put("/notes/{note_id}")
-def update_note(note_id: str, data: NoteUpdate):
+def update_note(note_id: str, data: NoteUpdate, uid: str = Depends(get_current_user)):
     if not firebase_initialized or not db:
         raise HTTPException(status_code=500, detail="Firestore not available")
     content = data.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="Note content cannot be empty")
-    doc_ref = db.collection("notes").document(note_id)
+    doc_ref = db.collection("users").document(uid).collection("notes").document(note_id)
     doc = doc_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -1663,10 +1676,10 @@ def update_note(note_id: str, data: NoteUpdate):
 
 
 @app.delete("/notes/{note_id}")
-def delete_note(note_id: str):
+def delete_note(note_id: str, uid: str = Depends(get_current_user)):
     if not firebase_initialized or not db:
         raise HTTPException(status_code=500, detail="Firestore not available")
-    doc_ref = db.collection("notes").document(note_id)
+    doc_ref = db.collection("users").document(uid).collection("notes").document(note_id)
     doc = doc_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -1674,14 +1687,14 @@ def delete_note(note_id: str):
     return {"status": "success", "message": "Note deleted"}
 
 @app.get("/memory")
-def get_memory():
-    memory = load_user_memory()
+def get_memory(uid: str = Depends(get_current_user)):
+    memory = load_user_memory(uid)
     return {"memory": memory}
 
 @app.delete("/memory")
-def clear_memory():
+def clear_memory(uid: str = Depends(get_current_user)):
     if firebase_initialized and db:
-        db.collection("user_memory").document("default_user").delete()
+        db.collection("users").document(uid).collection("memory").document("profile").delete()
         return {"status": "success", "message": "Memory cleared"}
     return {"status": "error", "message": "Firebase not available"}
 @app.on_event("startup")
