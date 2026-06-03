@@ -180,6 +180,7 @@ Possible intents:
 - delete_all_notes
 - summarize_and_save
 - extract_tasks_from_image
+- extract_text_and_save_note
 - normal_chat
 
 IMPORTANT:
