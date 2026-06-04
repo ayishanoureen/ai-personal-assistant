@@ -14,7 +14,7 @@ import re
 import datetime
 import asyncio
 import difflib
-from scheduler import start_scheduler
+from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
 
 
 async def get_current_user(authorization: str = Header(None)):
@@ -316,8 +316,8 @@ def detect_intent_locally(message: str) -> str | None:
     return None
 
 
-def parse_date_robustly(message: str) -> str:
-    now = datetime.datetime.now()
+def parse_date_robustly(message: str, ref_now: datetime.datetime = None) -> str:
+    now = ref_now or datetime.datetime.now()
     message_lower = message.lower()
     days_match = re.search(r'\b(?:in|after)\s+(\d+)\s+days?\b', message_lower)
     if days_match:
@@ -362,147 +362,243 @@ def parse_date_robustly(message: str) -> str:
     return now.strftime("%Y-%m-%d")
 
 
-def extract_reminder_details(message: str):
-    prefixes = [
-        r"^save a reminder to\b",
-        r"^save a reminder for\b",
-        r"^save a reminder\b",
-        r"^save reminder to\b",
-        r"^save reminder for\b",
-        r"^save reminder\b",
-        r"^set a reminder for\b",
-        r"^set reminder for\b",
-        r"^set reminder to\b",
-        r"^set a reminder to\b",
-        r"^remind me to\b",
-        r"^remind me of\b",
-        r"^remind me for\b",
-        r"^add reminder for\b",
-        r"^add reminder to\b",
-        r"^add a reminder for\b",
-        r"^add a reminder to\b",
-        r"^reminder for\b",
-        r"^reminder to\b",
-        r"^remind me\b",
-        r"^add reminder\b",
-        r"^set reminder\b"
-    ]
+WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
-    task_text = message.strip()
+
+def extract_recurrence_and_clean(message: str) -> tuple[dict | None, str]:
+    msg_lower = message.lower()
     
-    for prefix in prefixes:
-        match = re.search(prefix, task_text, re.IGNORECASE)
+    # 1. Weekday shortcut: "every weekday(s)"
+    weekday_shortcut_match = re.search(r"\bevery\s+weekdays?\b|\bon\s+weekdays\b", msg_lower)
+    if weekday_shortcut_match:
+        span = weekday_shortcut_match.span()
+        cleaned = message[:span[0]] + message[span[1]:]
+        return {
+            "repeat_type": "weekday",
+            "repeat_interval": 1,
+            "repeat_unit": "weekdays",
+            "repeat_weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+        }, cleaned
 
-        if match:
-            task_text = task_text[match.end():].strip()
-            break
+    # 2. Weekdays list
+    weekday_pattern = r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)s?\b"
+    matches = list(re.finditer(weekday_pattern, msg_lower))
+    if matches:
+        found_weekdays = []
+        ends_with_s = False
+        for m in matches:
+            word = m.group(0)
+            base_word = m.group(1)
+            found_weekdays.append(WEEKDAY_NAMES[WEEKDAY_MAP[base_word]])
+            if word.endswith('s'):
+                ends_with_s = True
+                
+        unique_weekdays = []
+        for w in found_weekdays:
+            if w not in unique_weekdays:
+                unique_weekdays.append(w)
+                
+        first_start = matches[0].start()
+        prefix = msg_lower[max(0, first_start - 15):first_start].strip()
+        
+        has_recurring_keyword = False
+        for kw in ["every", "each", "repeat on", "repeating on", "weekly on"]:
+            if kw in prefix:
+                has_recurring_keyword = True
+                break
+                
+        has_on = "on" in prefix
+        
+        if has_recurring_keyword or ends_with_s or len(unique_weekdays) >= 2 or (has_on and ends_with_s):
+            start_idx = first_start
+            if has_recurring_keyword:
+                for kw in ["every", "each", "repeat on", "repeating on", "weekly on"]:
+                    idx = prefix.rfind(kw)
+                    if idx != -1:
+                        start_idx = max(0, first_start - 15) + idx
+                        break
+            elif has_on:
+                idx = prefix.rfind("on")
+                if idx != -1:
+                    start_idx = max(0, first_start - 15) + idx
+                    
+            end_idx = matches[-1].end()
+            cleaned = message[:start_idx] + message[end_idx:]
+            return {
+                "repeat_type": "weekday",
+                "repeat_interval": 1,
+                "repeat_unit": "weekdays",
+                "repeat_weekdays": unique_weekdays
+            }, cleaned
 
-    time_part = "Not specified"
+    # 3. Interval: "every X minutes/hours/days/weeks/months"
+    interval_match_1 = re.search(r"\bevery\s+(\d+)\s*(minute|min|hour|hr|day|week|month)s?\b", msg_lower)
+    if interval_match_1:
+        val = int(interval_match_1.group(1))
+        unit = interval_match_1.group(2)
+        unit_map = {
+            "minute": "minutes", "min": "minutes",
+            "hour": "hours", "hr": "hours",
+            "day": "days", "week": "weeks", "month": "months"
+        }
+        std_unit = unit_map[unit]
+        span = interval_match_1.span()
+        cleaned = message[:span[0]] + message[span[1]:]
+        return {
+            "repeat_type": "interval",
+            "repeat_interval": val,
+            "repeat_unit": std_unit,
+            "repeat_weekdays": []
+        }, cleaned
 
-    time_patterns = [
+    # 4. Singular interval: "every minute/hour/day/week/month"
+    interval_match_2 = re.search(r"\bevery\s+(minute|min|hour|hr|day|week|month)s?\b", msg_lower)
+    if interval_match_2:
+        unit = interval_match_2.group(1)
+        unit_map = {
+            "minute": "minutes", "min": "minutes",
+            "hour": "hours", "hr": "hours",
+            "day": "days", "week": "weeks", "month": "months"
+        }
+        std_unit = unit_map[unit]
+        span = interval_match_2.span()
+        cleaned = message[:span[0]] + message[span[1]:]
+        return {
+            "repeat_type": "interval",
+            "repeat_interval": 1,
+            "repeat_unit": std_unit,
+            "repeat_weekdays": []
+        }, cleaned
 
-        r"\b(in|after)\s+\d+\s+(minutes?|mins?|hours?|hrs?|days?)\b",
+    # 5. Shortcuts: "daily", "weekly", "monthly"
+    shortcut_match = re.search(r"\b(daily|weekly|monthly)\b", msg_lower)
+    if shortcut_match:
+        word = shortcut_match.group(1)
+        unit_map = {
+            "daily": "days",
+            "weekly": "weeks",
+            "monthly": "months"
+        }
+        span = shortcut_match.span()
+        cleaned = message[:span[0]] + message[span[1]:]
+        return {
+            "repeat_type": "interval",
+            "repeat_interval": 1,
+            "repeat_unit": unit_map[word],
+            "repeat_weekdays": []
+        }, cleaned
 
-        r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    return None, message
 
-        r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
 
-        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?\b",
-
-        r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
-
-        r"\bat\s+(\d{1,2}(?::\d{2})?\s+in\s+the\s+(morning|evening|afternoon|night))\b",
-
-        r"\b(\d{1,2}(?::\d{2})?\s+in\s+the\s+(morning|evening|afternoon|night))\b",
-
-        r"\bat\s+(\d{1,2}(?::\d{2})?\s+(morning|evening|afternoon|night|morn|eve))\b",
-
-        r"\b(\d{1,2}(?::\d{2})?\s+(morning|evening|afternoon|night|morn|eve))\b",
-
-        r"\bat\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))\b",
-
-        r"\b(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))\b",
-
-        r"\b(tomorrow|today|tonight|this evening|this morning)\b",
-    ]
-
-    for pattern in time_patterns:
-
-        match = re.search(pattern, task_text, re.IGNORECASE)
-
-        if match:
-
-            time_part = match.group(0)
-
-            task_text = re.sub(
-                pattern,
-                "",
-                task_text,
-                flags=re.IGNORECASE
-            ).strip()
-
-            break
-
-    task_text = re.sub(
-        r'^(to|for|at|on)\s+',
-        '',
-        task_text,
-        flags=re.IGNORECASE
-    )
-
-    task_text = re.sub(
-        r'\s+(to|for|at|on)$',
-        '',
-        task_text,
-        flags=re.IGNORECASE
-    )
-
-    # Remove date-related words from reminder text
-    task_text = re.sub(
-        r'\b(today|tomorrow|tonight|this morning|this evening)\b',
-        '',
-        task_text,
-        flags=re.IGNORECASE
-    )
-
-    # Clean extra spaces
-    task_text = re.sub(r'\s+', ' ', task_text).strip()
-    task_text = task_text.strip()
-
-    date_part = parse_date_robustly(message)
-    time_part_clean = ""
-
-    message_lower = message.lower()
-    clock_match = re.search(
-        r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b",
-        message_lower,
-        re.IGNORECASE
-    )
-
-    if clock_match:
-        time_part_clean = normalize_time(clock_match.group(0))
-    else:
-        relative_match = re.search(
-            r"\b(?:in|after)\s+(\d+)\s+(minutes?|mins?|hours?|hrs?)\b",
-            message_lower,
-            re.IGNORECASE
+def make_future_datetime(
+    dt: datetime.datetime,
+    is_recurring: bool,
+    recurrence_data: dict | None,
+    ref_now: datetime.datetime
+) -> datetime.datetime:
+    if dt > ref_now:
+        return dt
+        
+    if is_recurring and recurrence_data:
+        next_run = calculate_next_occurrence_datetime(
+            start_dt=dt,
+            repeat_type=recurrence_data.get("repeat_type"),
+            repeat_interval=recurrence_data.get("repeat_interval"),
+            repeat_unit=recurrence_data.get("repeat_unit"),
+            repeat_weekdays=recurrence_data.get("repeat_weekdays"),
+            now=ref_now
         )
+        if next_run:
+            return next_run
+            
+    while dt <= ref_now:
+        dt += datetime.timedelta(days=1)
+    return dt
 
-        if relative_match:
-            amount = int(relative_match.group(1))
-            unit = relative_match.group(2).lower()
 
-            future = datetime.datetime.now()
+def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> dict:
+    if ref_now is None:
+        ref_now = datetime.datetime.now()
+        
+    repeat_data, cleaned_message = extract_recurrence_and_clean(message)
+    message_lower = cleaned_message.lower()
+    
+    clock_match = re.search(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", message_lower, re.IGNORECASE)
+    time_str = ""
+    time_extracted = False
+    
+    if clock_match:
+        time_str = normalize_time(clock_match.group(0))
+        time_extracted = True
+        cleaned_message = re.sub(re.escape(clock_match.group(0)), "", cleaned_message, flags=re.IGNORECASE).strip()
+    else:
+        clock_24_match = re.search(r"\b(\d{1,2}):(\d{2})\b", message_lower)
+        if clock_24_match:
+            time_str = normalize_time(clock_24_match.group(0))
+            time_extracted = True
+            cleaned_message = re.sub(re.escape(clock_24_match.group(0)), "", cleaned_message, flags=re.IGNORECASE).strip()
+            
+    relative_match = re.search(r"\b(?:in|after)\s+(\d+)\s+(minutes?|mins?|hours?|hrs?)\b", cleaned_message.lower(), re.IGNORECASE)
+    if relative_match and not time_extracted:
+        amount = int(relative_match.group(1))
+        unit = relative_match.group(2).lower()
+        future = ref_now
+        if "hour" in unit or "hr" in unit:
+            future += datetime.timedelta(hours=amount)
+        else:
+            future += datetime.timedelta(minutes=amount)
+        date_str = future.strftime("%Y-%m-%d")
+        time_str = future.strftime("%I:%M %p")
+        time_extracted = True
+        cleaned_message = re.sub(relative_match.group(0), "", cleaned_message, flags=re.IGNORECASE).strip()
+    else:
+        date_str = parse_date_robustly(cleaned_message, ref_now)
+        date_patterns = [
+            r"\btomorrow\b", r"\btoday\b", r"\btonight\b",
+            r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+            r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+            r"\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?\b",
+            r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+            r"\b\d{4}-\d{1,2}-\d{1,2}\b"
+        ]
+        for pattern in date_patterns:
+            cleaned_message = re.sub(pattern, "", cleaned_message, flags=re.IGNORECASE).strip()
+            
+    if not time_str:
+        time_str = "09:00 AM"
+        
+    if not date_str:
+        date_str = ref_now.strftime("%Y-%m-%d")
+        
+    task_text = normalize_reminder_text(cleaned_message)
+    if task_text:
+        task_text = task_text[0].upper() + task_text[1:]
+        
+    try:
+        parsed_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
+        parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        reminder_dt = datetime.datetime.combine(parsed_date, parsed_time)
+    except Exception:
+        reminder_dt = datetime.datetime.combine(ref_now.date(), datetime.time(9, 0))
+        
+    is_recurring = repeat_data is not None
+    final_dt = make_future_datetime(reminder_dt, is_recurring, repeat_data, ref_now)
+    
+    return {
+        "text": task_text,
+        "date": final_dt.strftime("%Y-%m-%d"),
+        "time": final_dt.strftime("%I:%M %p"),
+        "repeat_type": repeat_data["repeat_type"] if repeat_data else None,
+        "repeat_interval": repeat_data["repeat_interval"] if repeat_data else None,
+        "repeat_unit": repeat_data["repeat_unit"] if repeat_data else None,
+        "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
+    }
 
-            if "hour" in unit or "hr" in unit:
-                future += datetime.timedelta(hours=amount)
-            else:
-                future += datetime.timedelta(minutes=amount)
 
-            date_part = future.strftime("%Y-%m-%d")
-            time_part_clean = future.strftime("%I:%M %p")
-
-    return task_text, date_part, time_part_clean
+def extract_reminder_details(message: str):
+    res = parse_reminder_message(message, datetime.datetime.now())
+    return res["text"], res["date"], res["time"]
 
 
 def is_valid_reminder(text: str) -> bool:
@@ -708,34 +804,41 @@ def save_to_firestore_bg(uid: str, user_message: str, ai_reply: dict):
             logger.error(f"Firestore Error (Bypassed in background): {e}")
 def extract_repeat_type(message):
     msg = message.lower()
-    match = re.search(r"every\s+(\d+)\s+(hour|hours|day|days|week|weeks|month|months)", msg)
+
+    weekdays = [
+        "monday","tuesday","wednesday",
+        "thursday","friday","saturday","sunday"
+    ]
+
+    # 1. every X days/weeks etc
+    match = re.search(r"every\s+(\d+)\s+(hour|day|week|month)s?", msg)
     if match:
         return {
+            "type": "interval",
             "repeat_interval": int(match.group(1)),
             "repeat_unit": match.group(2)
         }
-    if "hourly" in msg or "every hour" in msg:
+
+    # 2. daily/weekly/monthly
+    if "daily" in msg or "every day" in msg:
+        return {"type": "interval", "interval": 1, "unit": "days", "weekdays": []}
+
+    if "weekly" in msg or "every week" in msg:
+        return {"type": "interval", "interval": 1, "unit": "weeks", "weekdays": []}
+
+    if "monthly" in msg or "every month" in msg:
+        return {"type": "interval", "interval": 1, "unit": "months", "weekdays": []}
+
+    # 3. weekday recurrence (IMPORTANT FIX)
+    found_days = [d for d in weekdays if f"every {d}" in msg or f"on {d}" in msg]
+
+    if found_days:
         return {
-            "repeat_interval": 1,
-            "repeat_unit": "hours"
+            "type": "weekday",
+            "weekdays": found_days
         }
-    elif "daily" in msg or "every day" in msg:
-        return {
-            "repeat_interval": 1,
-            "repeat_unit": "days"
-        }
-    elif "weekly" in msg or "every week" in msg:
-        return {
-            "repeat_interval": 1,
-            "repeat_unit": "weeks"
-        }
-    elif "monthly" in msg or "every month" in msg:
-        return {
-            "repeat_interval": 1,
-            "repeat_unit": "months"
-        }
-    else:
-        return None
+
+    return None
 
 
 @app.post("/chat")
@@ -807,43 +910,18 @@ async def chat(
             save_user_memory(uid, memory_data)
 
         if intent == "save_reminder":
-            reminder_text, reminder_date, reminder_time = extract_reminder_details(user_message)
-            repeat_data = extract_repeat_type(user_message)
-            repeat_interval = None
-            repeat_unit = None
-            if repeat_data:
-                repeat_interval = repeat_data["repeat_interval"]
-                repeat_unit = repeat_data["repeat_unit"]
-            # Normalize reminder text before saving
-            reminder_text = normalize_reminder_text(reminder_text)
-            if len(reminder_text) > 0:
-                reminder_text = reminder_text[0].upper() + reminder_text[1:]
-            reminder_time = normalize_time(reminder_time)
-            if reminder_time.lower() in ["tomorrow", "today", "tonight"]:
-                reminder_time = reminder_time.capitalize()
-            now = datetime.datetime.now()
-            try: 
-                if reminder_time and reminder_date.lower() not in ["not specified", ""]:
-                    parsed_time = datetime.datetime.strptime(reminder_time, "%I:%M %p").time()
-                else:
-                    parsed_time = datetime.time(23,59)
-                reminder_dt_obj = datetime.datetime.strptime(reminder_date, "%Y-%m-%d")
-                reminder_dt = datetime.datetime.combine(reminder_dt_obj.date(), parsed_time)
+            ref_now = datetime.datetime.now()
+            res = parse_reminder_message(user_message, ref_now)
+            
+            reminder_text = res["text"]
+            reminder_date = res["date"]
+            reminder_time = res["time"]
+            repeat_type = res["repeat_type"]
+            repeat_interval = res["repeat_interval"]
+            repeat_unit = res["repeat_unit"]
+            repeat_weekdays = res["repeat_weekdays"]
+            is_recurring = repeat_type is not None
 
-                if reminder_dt <= now and not repeat_data:
-                    logger.warning("Reminder date/time is in the past. Skipping save.")
-                    ai_reply = {
-                        "title": "Past Reminder",
-                        "summary": "This reminder is set for a past date or time. Please provide a future date and time.",
-                        "details": []
-                    }
-                    return {
-                        "reply": ai_reply,
-                        "status": "error"
-                    }
-            except Exception as e:
-                logger.error(f"Reminder time validation error: {e}")
-                
             if not is_valid_reminder(reminder_text):
                 ai_reply = {
                     "title": "Invalid Reminder",
@@ -857,7 +935,7 @@ async def chat(
                     "reply": ai_reply,
                     "status": "error"
                 }
-                
+
             is_duplicate = False
             if firebase_initialized and db: 
                 try:
@@ -868,12 +946,29 @@ async def chat(
                         db_date = data.get("date", "")
                         db_time = data.get("time", "")
                         
+                        db_repeat_type = data.get("repeat_type")
+                        db_repeat_interval = data.get("repeat_interval")
+                        db_repeat_unit = data.get("repeat_unit")
+                        db_repeat_weekdays = data.get("repeat_weekdays")
+                        
                         # Compare normalized task + date + time case-insensitively using fuzzy matching
-                        if (is_fuzzy_match(db_text, reminder_text) and
-                            db_date == reminder_date and
-                            normalize_time(db_time) == normalize_time(reminder_time)):
-                            is_duplicate = True
-                            break
+                        texts_match = is_fuzzy_match(db_text, reminder_text)
+                        times_match = normalize_time(db_time) == normalize_time(reminder_time)
+                        
+                        if texts_match and times_match:
+                            if is_recurring:
+                                db_weekdays = [w.lower().strip() for w in (db_repeat_weekdays or [])]
+                                curr_weekdays = [w.lower().strip() for w in (repeat_weekdays or [])]
+                                if (db_repeat_type == repeat_type and
+                                    db_repeat_interval == repeat_interval and
+                                    (db_repeat_unit or "").lower().strip() == (repeat_unit or "").lower().strip() and
+                                    sorted(db_weekdays) == sorted(curr_weekdays)):
+                                    is_duplicate = True
+                                    break
+                            else:
+                                if not db_repeat_type and db_date == reminder_date:
+                                    is_duplicate = True
+                                    break
                 except Exception as db_err:
                     logger.error(f"Error checking duplicate reminder: {db_err}")
                     
@@ -883,7 +978,7 @@ async def chat(
                     "summary": "This reminder has already been set.",
                     "details": [
                         f"Task: {reminder_text}",
-                        f"Time: {reminder_time}"
+                        f"Time: {reminder_time}" + (" (Repeats)" if is_recurring else "")
                     ]
                 }
                 return {
@@ -897,11 +992,13 @@ async def chat(
                     "text": reminder_text,
                     "date": reminder_date,
                     "time": reminder_time,
-                    "repeat_interval":repeat_interval,
-                    "repeat_unit":repeat_unit,
+                    "repeat_type": repeat_type,
+                    "repeat_interval": repeat_interval,
+                    "repeat_unit": repeat_unit,
+                    "repeat_weekdays": repeat_weekdays,
                     "created_at": firestore.SERVER_TIMESTAMP
                 })    
-                logger.info(f"[REMINDER_CREATED] Text: '{reminder_text}', Date: '{reminder_date}', Time: '{reminder_time}'")
+                logger.info(f"[REMINDER_CREATED] Text: '{reminder_text}', Date: '{reminder_date}', Time: '{reminder_time}', Recurring: {is_recurring}")
                 db_updated = True
 
             ai_reply = {
@@ -909,7 +1006,7 @@ async def chat(
                 "summary": "Reminder saved successfully",
                 "details": [
                     f"Task: {reminder_text}",
-                    f"Time: {reminder_time}"
+                    f"Time: {reminder_time}" + (" (Repeats)" if is_recurring else "")
                 ]
             }
 
@@ -956,8 +1053,13 @@ async def chat(
                     reminder_parts = [text]
                     repeat_interval = data.get("repeat_interval")
                     repeat_unit = data.get("repeat_unit")
-                    if repeat_interval and repeat_unit:
-                        reminder_parts.append(f"every {repeat_interval} {repeat_unit}")
+                    if repeat_unit:
+                        weekdays = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+
+                        if repeat_unit in weekdays:
+                            reminder_parts.append(f"every {repeat_unit.capitalize()}")
+                        elif repeat_interval:
+                            reminder_parts.append(f"every {repeat_interval} {repeat_unit}")
 
                     if time:
                         reminder_parts.append(f"at {time}")
@@ -1552,8 +1654,11 @@ Known User Information:
 class ReminderUpdate(BaseModel):
     text: str
     time: str
+    date: str | None = None
+    repeat_type: str | None = None
     repeat_interval: int | None = None
     repeat_unit: str | None = None
+    repeat_weekdays: list[str] | None = None
 
 class NoteUpdate(BaseModel):
     content: str
@@ -1675,8 +1780,10 @@ def get_all_reminders(uid: str = Depends(get_current_user)):
                         "text": data.get("text", ""),
                         "date": data.get("date", ""),
                         "time": data.get("time", ""),
+                        "repeat_type": data.get("repeat_type"),
                         "repeat_interval": data.get("repeat_interval"),
                         "repeat_unit": data.get("repeat_unit"),
+                        "repeat_weekdays": data.get("repeat_weekdays"),
                         "created_at": str(data.get("created_at", ""))
                     })
 
@@ -1738,7 +1845,61 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
     doc = doc_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Reminder not found")
-    doc_ref.update({"text": text, "time": time_val, "repeat_interval": data.repeat_interval, "repeat_unit": data.repeat_unit})
+        
+    repeat_type = data.repeat_type
+    repeat_interval = data.repeat_interval
+    repeat_unit = data.repeat_unit
+    repeat_weekdays = data.repeat_weekdays
+    
+    if not repeat_type:
+        if repeat_weekdays:
+            repeat_type = "weekday"
+        elif repeat_unit and repeat_interval:
+            repeat_type = "interval"
+            
+    if repeat_type == "interval":
+        repeat_interval = repeat_interval or 1
+        if repeat_unit:
+            unit_clean = str(repeat_unit).lower().strip()
+            if not unit_clean.endswith("s"):
+                if unit_clean.startswith("min"):
+                    unit_clean = "minutes"
+                elif unit_clean.startswith("hour") or unit_clean.startswith("hr"):
+                    unit_clean = "hours"
+                elif unit_clean.startswith("day"):
+                    unit_clean = "days"
+                elif unit_clean.startswith("week"):
+                    unit_clean = "weeks"
+                elif unit_clean.startswith("month"):
+                    unit_clean = "months"
+                else:
+                    unit_clean = unit_clean + "s"
+            repeat_unit = unit_clean
+        repeat_weekdays = None
+    elif repeat_type == "weekday":
+        repeat_interval = 1
+        repeat_unit = "weekdays"
+        if not repeat_weekdays:
+            repeat_weekdays = []
+        repeat_weekdays = [str(w).lower().strip() for w in repeat_weekdays]
+    else:
+        repeat_type = None
+        repeat_interval = None
+        repeat_unit = None
+        repeat_weekdays = None
+        
+    update_dict = {
+        "text": text,
+        "time": normalize_time(time_val),
+        "repeat_type": repeat_type,
+        "repeat_interval": repeat_interval,
+        "repeat_unit": repeat_unit,
+        "repeat_weekdays": repeat_weekdays
+    }
+    if data.date:
+        update_dict["date"] = data.date.strip()
+        
+    doc_ref.update(update_dict)
     return {"status": "success", "message": "Reminder updated"}
 
 
