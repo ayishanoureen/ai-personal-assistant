@@ -5,8 +5,6 @@ from dateutil.relativedelta import relativedelta
 
 scheduler = BackgroundScheduler()
 
-db = firestore.client()
-
 def calculate_next_occurrence(date_str, time_str, interval, unit):
     try:
         current = datetime.strptime(
@@ -133,7 +131,7 @@ scheduler.add_job(
     process_recurring_reminders,
     "interval",
     minutes=1,
-    max_instance=1,
+    max_instances=1,
     coalesce=True
 )
 

@@ -1793,4 +1793,8 @@ def clear_memory(uid: str = Depends(get_current_user)):
     return {"status": "error", "message": "Firebase not available"}
 @app.on_event("startup")
 async def startup_event():
-    start_scheduler()
+    try:
+        start_scheduler()
+        logger.info("Scheduler started successfully")
+    except Exception as e:
+        logger.error(f"Scheduler failed: {e}")
