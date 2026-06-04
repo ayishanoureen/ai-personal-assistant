@@ -14,6 +14,8 @@ import re
 import datetime
 import asyncio
 import difflib
+from scheduler import start_scheduler
+
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization: 
@@ -181,6 +183,7 @@ Possible intents:
 - summarize_and_save
 - extract_tasks_from_image
 - extract_text_and_save_note
+- stop_repeating_reminder
 - normal_chat
 
 IMPORTANT:
@@ -307,6 +310,8 @@ def detect_intent_locally(message: str) -> str | None:
         
     if re.search(r'\b(summarize|summarise|make\s+a\s+summary|shorten\s+this)\b', m):
         return "summarize_and_save"
+    if re.search(r"\b(stop repeating|disable recurrence|one time reminder)\b", m):
+        return "stop_repeating_reminder"
         
     return None
 
@@ -701,7 +706,36 @@ def save_to_firestore_bg(uid: str, user_message: str, ai_reply: dict):
             logger.info("Successfully saved conversation to Firestore (background).")
         except Exception as e:
             logger.error(f"Firestore Error (Bypassed in background): {e}")
-
+def extract_repeat_type(message):
+    msg = message.lower()
+    match = re.search(r"every\s+(\d+)\s+(hour|hours|day|days|week|weeks|month|months)", msg)
+    if match:
+        return {
+            "repeat_interval": int(match.group(1)),
+            "repeat_unit": match.group(2)
+        }
+    if "hourly" in msg or "every hour" in msg:
+        return {
+            "repeat_interval": 1,
+            "repeat_unit": "hours"
+        }
+    elif "daily" in msg or "every day" in msg:
+        return {
+            "repeat_interval": 1,
+            "repeat_unit": "days"
+        }
+    elif "weekly" in msg or "every week" in msg:
+        return {
+            "repeat_interval": 1,
+            "repeat_unit": "weeks"
+        }
+    elif "monthly" in msg or "every month" in msg:
+        return {
+            "repeat_interval": 1,
+            "repeat_unit": "months"
+        }
+    else:
+        return None
 
 
 @app.post("/chat")
@@ -774,7 +808,12 @@ async def chat(
 
         if intent == "save_reminder":
             reminder_text, reminder_date, reminder_time = extract_reminder_details(user_message)
-            
+            repeat_data = extract_repeat_type(user_message)
+            repeat_interval = None
+            repeat_unit = None
+            if repeat_data:
+                repeat_interval = repeat_data["repeat_interval"]
+                repeat_unit = repeat_data["repeat_unit"]
             # Normalize reminder text before saving
             reminder_text = normalize_reminder_text(reminder_text)
             if len(reminder_text) > 0:
@@ -791,7 +830,7 @@ async def chat(
                 reminder_dt_obj = datetime.datetime.strptime(reminder_date, "%Y-%m-%d")
                 reminder_dt = datetime.datetime.combine(reminder_dt_obj.date(), parsed_time)
 
-                if reminder_dt <= now:
+                if reminder_dt <= now and not repeat_data:
                     logger.warning("Reminder date/time is in the past. Skipping save.")
                     ai_reply = {
                         "title": "Past Reminder",
@@ -858,6 +897,8 @@ async def chat(
                     "text": reminder_text,
                     "date": reminder_date,
                     "time": reminder_time,
+                    "repeat_interval":repeat_interval,
+                    "repeat_unit":repeat_unit,
                     "created_at": firestore.SERVER_TIMESTAMP
                 })    
                 logger.info(f"[REMINDER_CREATED] Text: '{reminder_text}', Date: '{reminder_date}', Time: '{reminder_time}'")
@@ -913,6 +954,10 @@ async def chat(
                         except ValueError:
                             pass
                     reminder_parts = [text]
+                    repeat_interval = data.get("repeat_interval")
+                    repeat_unit = data.get("repeat_unit")
+                    if repeat_interval and repeat_unit:
+                        reminder_parts.append(f"every {repeat_interval} {repeat_unit}")
 
                     if time:
                         reminder_parts.append(f"at {time}")
@@ -1005,6 +1050,7 @@ async def chat(
 
             background_tasks.add_task(
                 save_to_firestore_bg,
+                uid,
                 user_message,
                 ai_reply
             )
@@ -1125,6 +1171,7 @@ async def chat(
 
             background_tasks.add_task(
                 save_to_firestore_bg,
+                uid,
                 user_message,
                 ai_reply
             )
@@ -1372,6 +1419,46 @@ async def chat(
                 "status": "success",
                 "db_updated": db_updated
             }
+
+        elif intent == "stop_repeating_reminder":
+            task = re.sub(r"stop repeating reminder", "", user_message, flags=re.IGNORECASE).strip()
+            task = normalize_reminder_text(task)
+
+            docs = db.collection("users").document(uid).collection("reminders").stream()
+
+            updated = False
+
+            for doc in docs:
+                data = doc.to_dict()
+
+                if is_fuzzy_match(data.get("text", ""), task):
+
+                    doc.reference.update({
+                        "repeat_interval": None,
+                        "repeat_unit": None
+                    })
+
+                    updated = True
+                    break
+
+            if updated:
+                ai_reply = {
+                    "title": "Recurring Reminder Disabled",
+                    "summary": "The reminder will no longer repeat.",
+                    "details": []
+                }
+            else:
+                ai_reply = {
+                    "title": "Reminder Not Found",
+                    "summary": "I couldn't find that recurring reminder.",
+                    "details": []
+                }
+
+            return {
+                "reply": ai_reply,
+                "status": "success"
+            }
+
         elif intent == "extract_tasks_from_image" and pil_image:
             model = genai.GenerativeModel(GEMINI_MODEL)
             extraction_prompt = """
@@ -1430,6 +1517,8 @@ Known User Information:
             "status": "success",
             "db_updated": False
         }
+    
+        
 
     except asyncio.TimeoutError as e:
         logger.error(f"[GEMINI_FAILURE] TimeoutError: {e}")
@@ -1463,6 +1552,8 @@ Known User Information:
 class ReminderUpdate(BaseModel):
     text: str
     time: str
+    repeat_interval: int | None = None
+    repeat_unit: str | None = None
 
 class NoteUpdate(BaseModel):
     content: str
@@ -1584,6 +1675,8 @@ def get_all_reminders(uid: str = Depends(get_current_user)):
                         "text": data.get("text", ""),
                         "date": data.get("date", ""),
                         "time": data.get("time", ""),
+                        "repeat_interval": data.get("repeat_interval"),
+                        "repeat_unit": data.get("repeat_unit"),
                         "created_at": str(data.get("created_at", ""))
                     })
 
@@ -1645,7 +1738,7 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
     doc = doc_ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Reminder not found")
-    doc_ref.update({"text": text, "time": time_val})
+    doc_ref.update({"text": text, "time": time_val, "repeat_interval": data.repeat_interval, "repeat_unit": data.repeat_unit})
     return {"status": "success", "message": "Reminder updated"}
 
 
@@ -1700,4 +1793,4 @@ def clear_memory(uid: str = Depends(get_current_user)):
     return {"status": "error", "message": "Firebase not available"}
 @app.on_event("startup")
 async def startup_event():
-    logger.info("SERVER STARTED SUCCESSFULLY")
+    start_scheduler()

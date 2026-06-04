@@ -24,6 +24,7 @@ export default function Home() {
     const [editingReminder, setEditingReminder] = useState(null);
     const [editReminderText, setEditReminderText] = useState("");
     const [editReminderTime, setEditReminderTime] = useState("");
+    const [editReminderRepeat, setEditReminderRepeat] = useState("none");
     const [editingNote, setEditingNote] = useState(null);
     const [editNoteContent, setEditNoteContent] = useState("");
     const [dashboardMsg, setDashboardMsg] = useState("");
@@ -110,12 +111,14 @@ export default function Home() {
         setEditingReminder(reminder.id);
         setEditReminderText(reminder.text);
         setEditReminderTime(reminder.time);
+        setEditReminderRepeat(reminder.repeat_type || "none");;
     };
 
     const cancelEditReminder = () => {
         setEditingReminder(null);
         setEditReminderText("");
         setEditReminderTime("");
+        setEditReminderRepeat("none");
     };
 
     const saveEditReminder = async (id) => {
@@ -126,10 +129,11 @@ export default function Home() {
         try {
             await API.put(`/reminders/${id}`, {
                 text: editReminderText.trim(),
-                time: editReminderTime.trim()
+                time: editReminderTime.trim(),
+                repeat_type: editReminderRepeat
             });
             setReminders(prev => prev.map(r =>
-                r.id === id ? { ...r, text: editReminderText.trim(), time: editReminderTime.trim() } : r
+                r.id === id ? { ...r, text: editReminderText.trim(), time: editReminderTime.trim(), repeat_type: editReminderRepeat } : r
             ));
             cancelEditReminder();
             showDashboardMsg("Reminder updated successfully");
@@ -351,8 +355,7 @@ export default function Home() {
                 speakText(aiReply);
 
                 // Sync dashboard after reminder/note actions
-                const title = (aiReply.title || "").toLowerCase();
-                const dbUpdated = response.data.db_updated || title.includes("reminder") || title.includes("note");
+                const dbUpdated = response.data.db_updated;
                 if (dbUpdated) {
                     fetchDashboard();
                 }
@@ -503,6 +506,17 @@ export default function Home() {
                                                     placeholder="Time"
                                                     className="edit-input"
                                                 />
+                                                <select
+                                                    value={editReminderRepeat}
+                                                    onChange={(e) =>
+                                                        setEditReminderRepeat(e.target.value)
+                                                    }
+                                                >
+                                                    <option value="none">One Time</option>
+                                                    <option value="daily">Daily</option>
+                                                    <option value="weekly">Weekly</option>
+                                                    <option value="monthly">Monthly</option>
+                                                </select>
                                                 <div className="edit-actions">
                                                     <button className="btn-save" onClick={() => saveEditReminder(r.id)}>Save</button>
                                                     <button className="btn-cancel" onClick={cancelEditReminder}>Cancel</button>
@@ -517,6 +531,17 @@ export default function Home() {
                                                         {r.date && (
                                                             <span style={{ marginLeft: "8px", opacity: 0.85, fontStyle: "italic" }}>
                                                                 ({r.date})
+                                                            </span>
+                                                        )}
+                                                        {r.repeat_type && r.repeat_type !== "none" && (
+                                                            <span
+                                                                style={{
+                                                                    marginLeft: "8px",
+                                                                    color: "#2196f3",
+                                                                    fontWeight: "bold"
+                                                                }}
+                                                            >
+                                                                🔁 Repeats {r.repeat_type}
                                                             </span>
                                                         )}
                                                     </span>
