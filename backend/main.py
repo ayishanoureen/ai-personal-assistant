@@ -1051,15 +1051,27 @@ async def chat(
                         except ValueError:
                             pass
                     reminder_parts = [text]
+                    repeat_type = data.get("repeat_type")
                     repeat_interval = data.get("repeat_interval")
                     repeat_unit = data.get("repeat_unit")
-                    if repeat_unit:
-                        weekdays = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+                    repeat_weekdays = data.get("repeat_weekdays")
 
-                        if repeat_unit in weekdays:
-                            reminder_parts.append(f"every {repeat_unit.capitalize()}")
-                        elif repeat_interval:
-                            reminder_parts.append(f"every {repeat_interval} {repeat_unit}")
+                    if repeat_type == "weekday" and repeat_weekdays:
+                        days_cap = [w.capitalize() for w in repeat_weekdays]
+                        if len(days_cap) == 5 and all(d in days_cap for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]):
+                            reminder_parts.append("every Weekday")
+                        else:
+                            if len(days_cap) > 1:
+                                reminder_parts.append(f"every {', '.join(days_cap[:-1])} and {days_cap[-1]}")
+                            else:
+                                reminder_parts.append(f"every {days_cap[0]}")
+                    elif repeat_unit:
+                        if repeat_interval:
+                            unit_display = repeat_unit
+                            if repeat_interval == 1:
+                                if repeat_unit.endswith("s"):
+                                    unit_display = repeat_unit[:-1]
+                            reminder_parts.append(f"every {repeat_interval} {unit_display}" if repeat_interval > 1 else f"every {unit_display}")
 
                     if time:
                         reminder_parts.append(f"at {time}")
@@ -1651,6 +1663,32 @@ Known User Information:
 
 # --- Pydantic Models for REST endpoints ---
 
+def map_repeat_type_to_frontend(
+    repeat_type: str | None,
+    repeat_interval: int | None,
+    repeat_unit: str | None,
+    repeat_weekdays: list | None
+) -> str:
+    if not repeat_type:
+        return "none"
+        
+    repeat_type_clean = repeat_type.lower().strip()
+    
+    if repeat_type_clean == "weekday":
+        return "weekly"
+        
+    if repeat_type_clean == "interval":
+        unit = (repeat_unit or "").lower().strip()
+        interval = repeat_interval or 1
+        if "day" in unit:
+            return "daily"
+        elif "week" in unit:
+            return "weekly"
+        elif "month" in unit:
+            return "monthly"
+            
+    return "none"
+
 class ReminderUpdate(BaseModel):
     text: str
     time: str
@@ -1774,16 +1812,28 @@ def get_all_reminders(uid: str = Depends(get_current_user)):
             for doc in docs:
                 try:
                     data = doc.to_dict() or {}
+                    
+                    db_repeat_type = data.get("repeat_type")
+                    db_repeat_interval = data.get("repeat_interval")
+                    db_repeat_unit = data.get("repeat_unit")
+                    db_repeat_weekdays = data.get("repeat_weekdays")
+                    
+                    frontend_repeat_type = map_repeat_type_to_frontend(
+                        db_repeat_type,
+                        db_repeat_interval,
+                        db_repeat_unit,
+                        db_repeat_weekdays
+                    )
 
                     reminders.append({
                         "id": doc.id,
                         "text": data.get("text", ""),
                         "date": data.get("date", ""),
                         "time": data.get("time", ""),
-                        "repeat_type": data.get("repeat_type"),
-                        "repeat_interval": data.get("repeat_interval"),
-                        "repeat_unit": data.get("repeat_unit"),
-                        "repeat_weekdays": data.get("repeat_weekdays"),
+                        "repeat_type": frontend_repeat_type,
+                        "repeat_interval": db_repeat_interval,
+                        "repeat_unit": db_repeat_unit,
+                        "repeat_weekdays": db_repeat_weekdays,
                         "created_at": str(data.get("created_at", ""))
                     })
 
@@ -1851,6 +1901,30 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
     repeat_unit = data.repeat_unit
     repeat_weekdays = data.repeat_weekdays
     
+    # Normalize frontend select values (none, daily, weekly, monthly)
+    if repeat_type:
+        repeat_type_lower = repeat_type.lower().strip()
+        if repeat_type_lower == "none":
+            repeat_type = None
+            repeat_interval = None
+            repeat_unit = None
+            repeat_weekdays = None
+        elif repeat_type_lower == "daily":
+            repeat_type = "interval"
+            repeat_interval = 1
+            repeat_unit = "days"
+            repeat_weekdays = None
+        elif repeat_type_lower == "weekly":
+            repeat_type = "interval"
+            repeat_interval = 1
+            repeat_unit = "weeks"
+            repeat_weekdays = None
+        elif repeat_type_lower == "monthly":
+            repeat_type = "interval"
+            repeat_interval = 1
+            repeat_unit = "months"
+            repeat_weekdays = None
+            
     if not repeat_type:
         if repeat_weekdays:
             repeat_type = "weekday"
@@ -1888,17 +1962,40 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
         repeat_unit = None
         repeat_weekdays = None
         
+    # Get existing date/time if not supplied and roll forward if in the past
+    existing_data = doc.to_dict() or {}
+    reminder_date = data.date or existing_data.get("date") or datetime.datetime.now().strftime("%Y-%m-%d")
+    reminder_time = normalize_time(time_val)
+    
+    try:
+        parsed_time = datetime.datetime.strptime(reminder_time, "%I:%M %p").time()
+        parsed_date = datetime.datetime.strptime(reminder_date, "%Y-%m-%d").date()
+        reminder_dt = datetime.datetime.combine(parsed_date, parsed_time)
+        
+        ref_now = datetime.datetime.now()
+        is_recurring = repeat_type is not None
+        recurrence_data = {
+            "repeat_type": repeat_type,
+            "repeat_interval": repeat_interval,
+            "repeat_unit": repeat_unit,
+            "repeat_weekdays": repeat_weekdays
+        }
+        final_dt = make_future_datetime(reminder_dt, is_recurring, recurrence_data, ref_now)
+        reminder_date = final_dt.strftime("%Y-%m-%d")
+        reminder_time = final_dt.strftime("%I:%M %p")
+    except Exception as err:
+        logger.error(f"Error calculating future datetime on update: {err}")
+        
     update_dict = {
         "text": text,
-        "time": normalize_time(time_val),
+        "date": reminder_date,
+        "time": reminder_time,
         "repeat_type": repeat_type,
         "repeat_interval": repeat_interval,
         "repeat_unit": repeat_unit,
         "repeat_weekdays": repeat_weekdays
     }
-    if data.date:
-        update_dict["date"] = data.date.strip()
-        
+    
     doc_ref.update(update_dict)
     return {"status": "success", "message": "Reminder updated"}
 
