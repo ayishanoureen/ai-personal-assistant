@@ -617,9 +617,7 @@ logger.info(f"TOTAL USERS: {len(users)}")
             .stream()
         )
 
-logger.info(f"USER {uid} REMINDERS FOUND: {len(reminders)}")
-
-        reminders = db.collection("users").document(uid).collection("reminders").stream()
+        logger.info(f"USER {uid} REMINDERS FOUND: {len(reminders)}")
 
         for doc in reminders:
             logger.info(f"Found reminder: {doc.id}")
