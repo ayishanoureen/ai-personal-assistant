@@ -17,6 +17,7 @@ import difflib
 from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
 from apscheduler.schedulers.background import BackgroundScheduler
 
+scheduler = BackgroundScheduler()
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization: 
