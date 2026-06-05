@@ -596,22 +596,25 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
-def cleanup_expired_reminders(uid: str):
+def cleanup_expired_reminders():
     if not firebase_initialized or not db:
         return
     now = datetime.datetime.now()
-    docs = db.collection("users").document(uid).collection("reminders").stream()
-    for doc in docs:
+    users = db.collection("users").stream()
+    for user_doc in users:
         try:
-            data = doc.to_dict() or {}
-            if data.get("repeat_type"):
-                continue
-            reminder_date = data.get("date")
-            reminder_time = data.get("time")
-            if not reminder_date or not reminder_time:
-                continue
-            reminder_dt = datetime.datetime.strptime(f"{reminder_date} {reminder_time}", "%Y-%m-%d %I:%M %p")
-            if reminder_dt < now:
+            uid = user_doc.id
+            reminders = db.collection("users").document(uid).collection("reminders").stream()
+            for doc in reminders:
+                data = doc.to_dict() or {}
+                if data.get("repeat_type"):
+                    continue
+                reminder_date = data.get("date")
+                reminder_time = data.get("time")
+                if not reminder_date or not reminder_time:
+                    continue
+                reminder_dt = datetime.datetime.strptime(f"{reminder_date} {reminder_time}", "%Y-%m-%d %I:%M %p")
+                if reminder_dt < now:
                 doc.reference.delete()
                 logger.info(f"[AUTO_DELETE]Removed expired reminder" f"{data.get('text','')}")
         except Exception as e:
@@ -1827,7 +1830,7 @@ def extract_day_filter(message: str) -> str | None:
 
 @app.get("/reminders")
 def get_all_reminders(uid: str = Depends(get_current_user)):
-    cleanup_expired_reminders(uid)
+    cleanup_expired_reminders()
     try:
         reminders = []
 
