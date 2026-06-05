@@ -623,10 +623,32 @@ def cleanup_expired_reminders():
                     continue
 
                 try:
-                    reminder_datetime = datetime.datetime.strptime(
-                        f"{reminder_date} {reminder_time}",
-                        "%Y-%m-%d %I:%M %p"
-                    )
+                    datetime_str = f"{reminder_date} {reminder_time}"
+
+                    formats = [
+                        "%Y-%m-%d %I:%M %p",  # 07:00 PM
+                        "%Y-%m-%d %I %p",     # 7 PM
+                        "%Y-%m-%d %H:%M",     # 19:00
+                    ]
+
+                    reminder_datetime = None
+
+                    for fmt in formats:
+                        try:
+                            reminder_datetime = datetime.datetime.strptime(
+                                datetime_str,
+                                fmt
+                            )
+                            break
+                        except ValueError:
+                            pass
+
+                    if reminder_datetime is None:
+                        logger.warning(
+                            f"Failed parsing reminder datetime for "
+                            f"{reminder_doc.id}: {datetime_str}"
+                        )
+                        continue
                 except Exception as e:
                     logger.warning(
                         f"Failed parsing reminder datetime "
