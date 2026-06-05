@@ -706,22 +706,22 @@ try:
 
         cred = credentials.Certificate(cred_dict)
 
-        firebase_admin.initialize_app(cred)
+        # IMPORTANT: prevent duplicate app issues
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred, {
+                "projectId": cred_dict.get("project_id")
+            })
 
         db = firestore.client()
-
         firebase_initialized = True
 
-        logger.info(
-            f"Successfully connected to Firestore project: "
-            f"{firebase_admin.get_app().project_id}"
-        )
+        logger.info(f"Connected to project: {cred_dict.get('project_id')}")
 
     else:
-        logger.warning("FIREBASE_CREDENTIALS environment variable not found.")
+        logger.warning("FIREBASE_CREDENTIALS missing")
 
 except Exception as e:
-    logger.error(f"Firebase initialization failed: {e}")
+    logger.error(f"Firebase init failed: {e}")
 app = FastAPI(
     title="AI Personal Assistant API",
     description="Backend API for AI Personal Assistant with Gemini and Firestore integration.",
