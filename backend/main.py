@@ -597,29 +597,50 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
     }
 
 def cleanup_expired_reminders():
+    logger.info("Running reminder cleanup job")
+
     if not firebase_initialized or not db:
         return
+
     now = datetime.datetime.now()
     users = db.collection("users").stream()
+
     for user_doc in users:
-            uid = user_doc.id
-            reminders = db.collection("users").document(uid).collection("reminders").stream()
-            for doc in reminders:
-                try:
-                    data = doc.to_dict() or {}
-                    logger.info(f"REMINDER DATA = {data}")
-                    if data.get("repeat_type"):
-                        continue
-                    reminder_date = data.get("date")
-                    reminder_time = data.get("time")
-                    if not reminder_date or not reminder_time:
-                        continue
-                    reminder_dt = datetime.datetime.strptime(f"{reminder_date} {reminder_time}", "%Y-%m-%d %I:%M %p")
-                    if reminder_dt < now:
-                        doc.reference.delete()
-                        logger.info(f"[AUTO_DELETE]Removed expired reminder: {data.get('text', '')}")
-                except Exception as e:
-                    logger.error(f"Cleanup error: {e}")
+        logger.info(f"Checking user: {user_doc.id}")
+
+        uid = user_doc.id
+
+        reminders = db.collection("users").document(uid).collection("reminders").stream()
+
+        for doc in reminders:
+            logger.info(f"Found reminder: {doc.id}")
+
+            try:
+                data = doc.to_dict() or {}
+                logger.info(f"REMINDER DATA = {data}")
+
+                if data.get("repeat_type"):
+                    continue
+
+                reminder_date = data.get("date")
+                reminder_time = data.get("time")
+
+                if not reminder_date or not reminder_time:
+                    logger.info("Skipping reminder because date/time missing")
+                    continue
+
+                reminder_dt = datetime.datetime.strptime(
+                    f"{reminder_date} {reminder_time}",
+                    "%Y-%m-%d %I:%M %p"
+                )
+                logger.info(f"Reminder datetime: {reminder_dt}")
+                if reminder_dt < now:
+                    doc.reference.delete()
+                    logger.info(
+                        f"[AUTO_DELETE] Removed expired reminder: {data.get('text', '')}"
+                    )
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
 
 def extract_reminder_details(message: str):
     res = parse_reminder_message(message, datetime.datetime.now())
