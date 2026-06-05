@@ -4,7 +4,7 @@ export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        const token = sessionStorage.getItem("token");
         if (token) {
             setUser({ token });
         }
@@ -12,12 +12,12 @@ export function AuthProvider({ children }) {
     }, []);
 
     const login = (token) => {
-        localStorage.setItem("token", token);
+        sessionStorage.setItem("token", token);
         setUser({ token });
     };
 
     const logout = () => {
-        localStorage.removeItem("token");
+        sessionStorage.removeItem("token");
         setUser(null);
     }
 

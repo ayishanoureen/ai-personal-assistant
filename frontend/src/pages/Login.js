@@ -10,7 +10,7 @@ export default function Login() {
             const user = await loginWithGoogle();
             const token = await user.getIdToken(true);
 
-            localStorage.setItem("token", token);
+            sessionStorage.setItem("token", token);
             navigate("/");
         } catch (err) {
             console.error(err);

@@ -15,6 +15,7 @@ import datetime
 import asyncio
 import difflib
 from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
+from apscheduler.scheduler.background import BackgroundScheduler
 
 
 async def get_current_user(authorization: str = Header(None)):
@@ -595,6 +596,26 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
+def cleanup_expire_reminders(uid: str):
+    if not firebase_initialized or not db:
+        return
+    now = datetime.datetime.now()
+    docs = db.collection("users").document(uid).collection("reminders").stream()
+    for doc in docs:
+        try:
+            data = doc.to_dict() or {}
+            if data.get("repeat_type"):
+                continue
+            reminder_date = data.get("date")
+            reminder_time = data.get("time")
+            if not reminder_date or not reminder_time:
+                continue
+            reminder_dt = datetime.datetime.strptime(f"{reminder_date} {reminder_time}", "%Y-%m-%d %I:%M %p")
+            if reminder_dt < now:
+                doc.reference.delete()
+                logger.info(f"[AUTO_DELETE]Removed expired reminder" f"{data.get('text','')}")
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
 
 def extract_reminder_details(message: str):
     res = parse_reminder_message(message, datetime.datetime.now())
@@ -776,6 +797,9 @@ IMPORTANT:
 - No extra explanations
 - Output ONLY valid JSON
 """
+scheduler = BackgroundScheduler()
+scheduler.add_job(cleanup_expired_reminders, 'interval', minutes=1)
+scheduler.start()
 
 class ChatRequest(BaseModel):
     message: str
@@ -1803,6 +1827,7 @@ def extract_day_filter(message: str) -> str | None:
 
 @app.get("/reminders")
 def get_all_reminders(uid: str = Depends(get_current_user)):
+    cleanup_expire_reminders(uid)
     try:
         reminders = []
 
