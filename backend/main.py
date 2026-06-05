@@ -605,7 +605,7 @@ def cleanup_expired_reminders():
 
     now = datetime.datetime.now(timezone.utc)
     users = list(db.collection("users").stream())
-logger.info(f"TOTAL USERS: {len(users)}")
+    logger.info(f"TOTAL USERS: {len(users)}")
     for user_doc in users:
         logger.info(f"Checking user: {user_doc.id}")
 
