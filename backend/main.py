@@ -620,7 +620,9 @@ def cleanup_expired_reminders():
                 data = doc.to_dict() or {}
                 logger.info(f"REMINDER DATA = {data}")
 
-                if data.get("repeat_type"):
+                repeat_type = data.get("repeat_type")
+
+                if repeat_type and repeat_type != "none":
                     continue
 
                 reminder_date = data.get("date")
