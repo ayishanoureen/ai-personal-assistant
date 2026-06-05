@@ -603,6 +603,9 @@ def cleanup_expired_reminders():
     if not firebase_initialized or not db:
         return
 
+    collections = list(db.collections())
+    logger.info(f"TOP LEVEL COLLECTIONS: {[c.id for c in collections]}")
+
     now = datetime.datetime.now(timezone.utc)
     users = db.collection("users").stream()
 
