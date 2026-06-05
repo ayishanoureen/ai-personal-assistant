@@ -636,6 +636,9 @@ def cleanup_expired_reminders():
                 reminder_dt = datetime.datetime.strptime(reminder_str, "%Y-%m-%d %I:%M %p")
                 reminder_dt = reminder_dt.replace(tzinfo=timezone.utc)
                 logger.info(f"Reminder datetime: {reminder_dt}")
+                logger.info(f"NOW = {now}")
+                logger.info(f"REMINDER = {reminder_dt}")
+                logger.info(f"EXPIRED? {reminder_dt < now}")
                 if reminder_dt < now:
                     doc.reference.delete()
                     logger.info(
