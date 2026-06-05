@@ -603,7 +603,8 @@ def cleanup_expired_reminders():
     if not firebase_initialized or not db:
         return
 
-    now = datetime.datetime.now()
+    now = datetime.datetime.utcnow()
+    now = now.replace(tzone=None)
     users = db.collection("users").stream()
 
     for user_doc in users:
@@ -632,10 +633,9 @@ def cleanup_expired_reminders():
                     logger.info("Skipping reminder because date/time missing")
                     continue
 
-                reminder_dt = datetime.datetime.strptime(
-                    f"{reminder_date} {reminder_time}",
-                    "%Y-%m-%d %I:%M %p"
-                )
+                reminder_str = f"{reminder_date.strip()} {reminder_time.strip()}"
+                reminder_dt = datetime.datetime.strptime(reminder_str, "%Y-%m-%d %I:%M %p")
+                reminder_dt = reminder_dt.replace(tzinfo=None)
                 logger.info(f"Reminder datetime: {reminder_dt}")
                 if reminder_dt < now:
                     doc.reference.delete()
