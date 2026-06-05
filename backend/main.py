@@ -604,20 +604,14 @@ def cleanup_expired_reminders():
         return
 
     now = datetime.datetime.now(timezone.utc)
-    users = list(db.collection("users").stream())
-    logger.info(f"TOTAL USERS: {len(users)}")
+    users = db.collection("users").stream()
+
     for user_doc in users:
         logger.info(f"Checking user: {user_doc.id}")
 
         uid = user_doc.id
-        reminders = list(
-            db.collection("users")
-            .document(uid)
-            .collection("reminders")
-            .stream()
-        )
 
-        logger.info(f"USER {uid} REMINDERS FOUND: {len(reminders)}")
+        reminders = db.collection("users").document(uid).collection("reminders").stream()
 
         for doc in reminders:
             logger.info(f"Found reminder: {doc.id}")
