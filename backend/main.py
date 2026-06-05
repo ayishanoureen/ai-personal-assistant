@@ -596,7 +596,7 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
-def cleanup_expire_reminders(uid: str):
+def cleanup_expired_reminders(uid: str):
     if not firebase_initialized or not db:
         return
     now = datetime.datetime.now()
@@ -1827,7 +1827,7 @@ def extract_day_filter(message: str) -> str | None:
 
 @app.get("/reminders")
 def get_all_reminders(uid: str = Depends(get_current_user)):
-    cleanup_expire_reminders(uid)
+    cleanup_expired_reminders(uid)
     try:
         reminders = []
 
