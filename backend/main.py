@@ -16,7 +16,7 @@ import asyncio
 import difflib
 from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
 from apscheduler.schedulers.background import BackgroundScheduler
-
+from datetime import timezone
 scheduler = BackgroundScheduler()
 
 async def get_current_user(authorization: str = Header(None)):
@@ -603,8 +603,7 @@ def cleanup_expired_reminders():
     if not firebase_initialized or not db:
         return
 
-    now = datetime.datetime.utcnow()
-    now = now.replace(tzone=None)
+    now = datetime.datetime.now(timezone.utc)
     users = db.collection("users").stream()
 
     for user_doc in users:
@@ -635,7 +634,7 @@ def cleanup_expired_reminders():
 
                 reminder_str = f"{reminder_date.strip()} {reminder_time.strip()}"
                 reminder_dt = datetime.datetime.strptime(reminder_str, "%Y-%m-%d %I:%M %p")
-                reminder_dt = reminder_dt.replace(tzinfo=None)
+                reminder_dt = reminder_dt.replace(tzinfo=timezone.utc)
                 logger.info(f"Reminder datetime: {reminder_dt}")
                 if reminder_dt < now:
                     doc.reference.delete()
