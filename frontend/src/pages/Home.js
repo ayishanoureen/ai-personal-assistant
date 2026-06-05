@@ -76,7 +76,7 @@ export default function Home() {
     }, [fetchDashboard]);
 
     const handleLogout = () => {
-        localStorage.removeItem("token");
+        sessionStorage.removeItem("token");
         window.location.href = "/login";
     };
 
@@ -308,7 +308,7 @@ export default function Home() {
     };
 
     const sendToBackend = useCallback(async (text, image) => {
-        const token = localStorage.getItem("token");
+        const token = sessionStorage.getItem("token");
 
         if (!token) {
             alert("Please login first");

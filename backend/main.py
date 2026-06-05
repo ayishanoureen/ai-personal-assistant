@@ -15,7 +15,7 @@ import datetime
 import asyncio
 import difflib
 from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
-from apscheduler.scheduler.background import BackgroundScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 
 
 async def get_current_user(authorization: str = Header(None)):
