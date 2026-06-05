@@ -822,10 +822,6 @@ IMPORTANT:
 - No extra explanations
 - Output ONLY valid JSON
 """
-scheduler = BackgroundScheduler()
-scheduler.add_job(cleanup_expired_reminders, 'interval', minutes=1)
-scheduler.start()
-
 class ChatRequest(BaseModel):
     message: str
 
@@ -2101,7 +2097,25 @@ def clear_memory(uid: str = Depends(get_current_user)):
 @app.on_event("startup")
 async def startup_event():
     try:
-        start_scheduler()
+        scheduler = BackgroundScheduler()
+
+        scheduler.add_job(
+            cleanup_expired_reminders,
+            "interval",
+            minutes=1
+        )
+
+        scheduler.add_job(
+            process_recurring_reminders,
+            "interval",
+            minutes=1
+        )
+
+        scheduler.start()
+
+        logger.info("Cleanup scheduler started")
+        logger.info("Recurring reminder scheduler started")
         logger.info("Scheduler started successfully")
+
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
