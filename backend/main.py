@@ -598,7 +598,7 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
     }
 
 def cleanup_expired_reminders():
-    logger.info("Running reminder cleanup job")
+    logger.info("******** CLEANUP V3 RUNNING ********")
 
     if not firebase_initialized or not db:
         return
