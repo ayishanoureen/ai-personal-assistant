@@ -598,30 +598,21 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
     }
 
 def cleanup_expired_reminders():
-    logger.info("******** CLEANUP V3 RUNNING ********")
+    try:
+        logger.info("Starting expired reminder cleanup...")
 
-    if not firebase_initialized or not db:
-        return
+        now = datetime.now()
+        deleted_count = 0
 
-    now = datetime.datetime.now(timezone.utc)
-    users = db.collection("users").document("users").collections()
+        # Search ALL reminders across ALL users
+        reminders = db.collection_group("reminders").stream()
 
-    for user_doc in users:
-        logger.info(f"Checking user: {user_doc.id}")
-
-        uid = user_doc.id
-
-        reminders = db.collection("users").document(uid).collection("reminders").stream()
-
-        for doc in reminders:
-            logger.info(f"Found reminder: {doc.id}")
-
+        for reminder_doc in reminders:
             try:
-                data = doc.to_dict() or {}
-                logger.info(f"REMINDER DATA = {data}")
+                data = reminder_doc.to_dict()
 
+                # Skip recurring reminders
                 repeat_type = data.get("repeat_type")
-
                 if repeat_type and repeat_type != "none":
                     continue
 
@@ -629,24 +620,45 @@ def cleanup_expired_reminders():
                 reminder_time = data.get("time")
 
                 if not reminder_date or not reminder_time:
-                    logger.info("Skipping reminder because date/time missing")
                     continue
 
-                reminder_str = f"{reminder_date.strip()} {reminder_time.strip()}"
-                reminder_dt = datetime.datetime.strptime(reminder_str, "%Y-%m-%d %I:%M %p")
-                reminder_dt = reminder_dt.replace(tzinfo=timezone.utc)
-                logger.info(f"Reminder datetime: {reminder_dt}")
-                logger.info(f"NOW = {now}")
-                logger.info(f"REMINDER = {reminder_dt}")
-                logger.info(f"EXPIRED? {reminder_dt < now}")
-                if reminder_dt < now:
-                    doc.reference.delete()
-                    logger.info(
-                        f"[AUTO_DELETE] Removed expired reminder: {data.get('text', '')}"
+                try:
+                    reminder_datetime = datetime.strptime(
+                        f"{reminder_date} {reminder_time}",
+                        "%Y-%m-%d %I:%M %p"
                     )
-            except Exception as e:
-                logger.error(f"Cleanup error: {e}")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed parsing reminder datetime "
+                        f"for {reminder_doc.id}: {e}"
+                    )
+                    continue
 
+                # Delete expired one-time reminders
+                if reminder_datetime < now:
+                    reminder_doc.reference.delete()
+
+                    deleted_count += 1
+
+                    logger.info(
+                        f"Deleted expired reminder: "
+                        f"{data.get('text', 'Unknown')}"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Error processing reminder {reminder_doc.id}: {e}"
+                )
+
+        logger.info(
+            f"Cleanup complete. Deleted {deleted_count} reminders."
+        )
+
+    except Exception as e:
+        logger.exception(
+            f"cleanup_expired_reminders failed: {e}"
+        )
+        
 def extract_reminder_details(message: str):
     res = parse_reminder_message(message, datetime.datetime.now())
     return res["text"], res["date"], res["time"]
@@ -706,22 +718,22 @@ try:
 
         cred = credentials.Certificate(cred_dict)
 
-        # IMPORTANT: prevent duplicate app issues
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred, {
-                "projectId": cred_dict.get("project_id")
-            })
+        firebase_admin.initialize_app(cred)
 
         db = firestore.client()
+
         firebase_initialized = True
 
-        logger.info(f"Connected to project: {cred_dict.get('project_id')}")
+        logger.info(
+            f"Successfully connected to Firestore project: "
+            f"{firebase_admin.get_app().project_id}"
+        )
 
     else:
-        logger.warning("FIREBASE_CREDENTIALS missing")
+        logger.warning("FIREBASE_CREDENTIALS environment variable not found.")
 
 except Exception as e:
-    logger.error(f"Firebase init failed: {e}")
+    logger.error(f"Firebase initialization failed: {e}")
 app = FastAPI(
     title="AI Personal Assistant API",
     description="Backend API for AI Personal Assistant with Gemini and Firestore integration.",
