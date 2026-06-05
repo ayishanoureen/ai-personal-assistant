@@ -601,7 +601,7 @@ def cleanup_expired_reminders():
     try:
         logger.info("Starting expired reminder cleanup...")
 
-        now = datetime.now()
+        now = datetime.datetime.now()
         deleted_count = 0
 
         # Search ALL reminders across ALL users
@@ -623,7 +623,7 @@ def cleanup_expired_reminders():
                     continue
 
                 try:
-                    reminder_datetime = datetime.strptime(
+                    reminder_datetime = datetime.datetime.strptime(
                         f"{reminder_date} {reminder_time}",
                         "%Y-%m-%d %I:%M %p"
                     )
@@ -658,7 +658,7 @@ def cleanup_expired_reminders():
         logger.exception(
             f"cleanup_expired_reminders failed: {e}"
         )
-        
+
 def extract_reminder_details(message: str):
     res = parse_reminder_message(message, datetime.datetime.now())
     return res["text"], res["date"], res["time"]
