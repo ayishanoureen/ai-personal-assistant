@@ -785,8 +785,18 @@ def get_system_prompt(user_name: str = "") -> str:
 USER INFORMATION:
 Name = {user_name}
 
-Use the name naturally when it feels appropriate.
-Avoid using it in every response.
+PERSONALIZATION RULES:
+- The user's name is {user_name}.
+- Use the user's name when:
+  * confirming reminders
+  * creating notes
+  * discussing tasks
+  * giving recommendations
+  * greeting the user
+  * summarizing completed actions
+- Use the name naturally and professionally.
+- Do not use the name in every sentence.
+- Do not force the name into technical explanations.
 """
     
     return f"""
