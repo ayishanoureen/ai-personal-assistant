@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getAuth, signOut } from "firebase/auth";
 
 const INACTIVITY_LIMIT = 60 * 1000;
 
@@ -6,13 +7,13 @@ export default function useAutoLogout() {
     useEffect(() => {
         let timeout;
 
-        const logout = () => {
+        const logout = async () => {
+            const auth = getAuth();
+            await signOut(auth);
             sessionStorage.removeItem("token");
             localStorage.removeItem("lastActivity");
 
-            alert("You have been logged out due to inactivity");
-
-            window.location.href = "/login";
+            window.location.replace("/login");
         };
 
         const resetTimer = () => {
