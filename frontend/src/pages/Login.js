@@ -11,6 +11,12 @@ export default function Login() {
             const token = await user.getIdToken(true);
 
             sessionStorage.setItem("token", token);
+
+            localStorage.setItem(
+                "lastActivity",
+                Date.now().toString()
+            );
+
             navigate("/");
         } catch (err) {
             console.error(err);

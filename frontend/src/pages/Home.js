@@ -77,6 +77,7 @@ export default function Home() {
 
     const handleLogout = () => {
         sessionStorage.removeItem("token");
+        localStorage.removeItem("lastActivity");
         window.location.href = "/login";
     };
 
