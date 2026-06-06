@@ -1,7 +1,7 @@
 import React from "react";
 import { loginWithGoogle } from "../firebase";
 import { useNavigate } from "react-router-dom";
-import API from "../api";
+import API from "../api/axios";
 
 export default function Login() {
     const navigate = useNavigate();
