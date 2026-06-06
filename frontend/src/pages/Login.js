@@ -11,7 +11,17 @@ export default function Login() {
             const token = await user.getIdToken(true);
 
             sessionStorage.setItem("token", token);
-
+            sessionStorage.setItem("userName", user.displayName)
+            await fetch(`${API_URL}/save-profile`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    name: user.displayName
+                })
+            });
             localStorage.setItem(
                 "lastActivity",
                 Date.now().toString()

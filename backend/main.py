@@ -770,7 +770,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def get_system_prompt() -> str:
+def get_system_prompt(user_name: str = "") -> str:
 
     now = datetime.datetime.now()
 
@@ -778,7 +778,19 @@ def get_system_prompt() -> str:
         "%A, %B %d, %Y, %I:%M:%S %p"
     )
 
+    name_context = ""
+
+    if user_name:
+        name_context = f"""
+USER INFORMATION:
+Name = {user_name}
+
+Use the name naturally when it feels appropriate.
+Avoid using it in every response.
+"""
+    
     return f"""
+{name_context}
 You are a smart, warm, conversational AI personal assistant.
 
 Current date and time:
@@ -980,6 +992,10 @@ async def chat(
 
     try:
         uid = await get_current_user(authorization)
+        user_doc = db.collection("users").document(uid).get()
+        user_name = ""
+        if user_doc.exists:
+            user_name = user_doc.to_dict().get("name", "")
         if image and ("note" in user_message.lower() and ("image" in user_message.lower() or "text" in user_message.lower() or "extract" in user_message.lower() or "convert" in user_message.lower())):
             intent = "extract_text_and_save_note"
         else: 
@@ -1683,7 +1699,7 @@ Return ONLY JSON:
 
         model = genai.GenerativeModel(GEMINI_MODEL)
         contents = []
-        system_prompt = get_system_prompt()
+        system_prompt = get_system_prompt(user_name)
         user_memory = load_user_memory(uid)
         if user_memory:
             memory_text = """
@@ -1786,6 +1802,8 @@ class ReminderUpdate(BaseModel):
 class NoteUpdate(BaseModel):
     content: str
 
+class ProfileRequest(BaseModel):
+    name: str
 
 # --- REST CRUD Endpoints ---
 
@@ -2149,3 +2167,19 @@ async def startup_event():
 
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
+
+@app.post("/save-profile")
+async def save_profile(
+    request: ProfileRequest,
+    authorization: str = Header(None)
+):
+    uid = await get_current_user(authorization)
+
+    db.collection("users").document(uid).set(
+        {
+            "name": request.name
+        },
+        merge=True
+    )
+
+    return {"success": True}

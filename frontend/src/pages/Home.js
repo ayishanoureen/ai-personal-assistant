@@ -28,6 +28,7 @@ export default function Home() {
     const [editingNote, setEditingNote] = useState(null);
     const [editNoteContent, setEditNoteContent] = useState("");
     const [dashboardMsg, setDashboardMsg] = useState("");
+    const userName = sessionStorage.getItem("userName")
 
     const scrollToBottom = () => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -77,6 +78,7 @@ export default function Home() {
 
     const handleLogout = () => {
         sessionStorage.removeItem("token");
+        sessionStorage.removeItem("userName");
         localStorage.removeItem("lastActivity");
         window.location.href = "/login";
     };
@@ -400,6 +402,7 @@ export default function Home() {
     return (
         <div className="container">
             <h1>AI Personal Assistant</h1>
+            <h2>Welcome, {userName}</h2>
             <button onClick={handleLogout} className="logout-btn">
                 🚪 Logout
             </button>
