@@ -1,6 +1,7 @@
 import React from "react";
 import { loginWithGoogle } from "../firebase";
 import { useNavigate } from "react-router-dom";
+import API from "../api";
 
 export default function Login() {
     const navigate = useNavigate();
@@ -12,16 +13,18 @@ export default function Login() {
 
             sessionStorage.setItem("token", token);
             sessionStorage.setItem("userName", user.displayName)
-            await API.post(`/save-profile`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({
+            await API.post(
+                "/save-profile",
+                {
                     name: user.displayName
-                })
-            });
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            );
+
             localStorage.setItem(
                 "lastActivity",
                 Date.now().toString()
