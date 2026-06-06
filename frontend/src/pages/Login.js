@@ -12,7 +12,7 @@ export default function Login() {
 
             sessionStorage.setItem("token", token);
             sessionStorage.setItem("userName", user.displayName)
-            await API.fetch(`/save-profile`, {
+            await API.post(`/save-profile`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
