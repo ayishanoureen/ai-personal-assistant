@@ -1910,6 +1910,7 @@ class NoteUpdate(BaseModel):
 
 class ProfileRequest(BaseModel):
     name: str
+    email: str
 
 # --- REST CRUD Endpoints ---
 
