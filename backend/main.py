@@ -770,6 +770,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def personalize_reply(ai_reply, user_name=""):
+    if (
+        user_name
+        and isinstance(ai_reply, dict)
+        and "summary" in ai_reply
+        and not ai_reply["summary"].startswith(user_name)
+    ):
+        ai_reply["summary"] = f"{user_name}, {ai_reply['summary']}"
+
+    return ai_reply  
+
 def get_system_prompt(user_name: str = "") -> str:
 
     now = datetime.datetime.now()
@@ -1043,7 +1054,7 @@ async def chat(
                     ]
                 }
                 return {
-                    "reply": ai_reply,
+                    "reply": personalize_reply(ai_reply, user_name),
                     "status": "error"
                 }
 
@@ -1093,7 +1104,7 @@ async def chat(
                     ]
                 }
                 return {
-                    "reply": ai_reply,
+                    "reply": personalize_reply(ai_reply, user_name),
                     "status": "success",
                     "db_updated": False
                 }
@@ -1124,7 +1135,7 @@ async def chat(
             background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
 
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1281,7 +1292,7 @@ async def chat(
             )
 
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": False
             }
@@ -1295,7 +1306,7 @@ async def chat(
                     "details": []
                 }
                 return {
-                    "reply": ai_reply,
+                    "reply": personalize_reply(ai_reply, user_name),
                     "status": "error",
                     "db_updated": False
                 }
@@ -1307,7 +1318,7 @@ async def chat(
                     "details": []
                 }
                 return {
-                    "reply": ai_reply,
+                    "reply": personalize_reply(ai_reply, user_name),
                     "status": "error",
                     "db_updated": False
                 }
@@ -1326,7 +1337,7 @@ async def chat(
             }
             background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1352,7 +1363,7 @@ async def chat(
             }
             background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1372,7 +1383,7 @@ async def chat(
             background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
 
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1402,7 +1413,7 @@ async def chat(
             )
 
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": False
             }
@@ -1423,7 +1434,7 @@ async def chat(
                 "details": ["All your reminders have been cleared."]
             }
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1444,7 +1455,7 @@ async def chat(
                 "details": ["All your notes have been cleared."]
             }
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1561,7 +1572,7 @@ async def chat(
                         }
                         background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
                         return {
-                            "reply": ai_reply,
+                            "reply": personalize_reply(ai_reply, user_name),
                             "status": "success",
                             "db_updated": False
                         }
@@ -1606,7 +1617,7 @@ async def chat(
                     "details": ["Try saying 'show reminders' to see your current reminders."]
                 }
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1640,7 +1651,7 @@ async def chat(
                     "details": ["Try saying 'show notes' to see your current notes."]
                 }
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": db_updated
             }
@@ -1680,7 +1691,7 @@ async def chat(
                 }
 
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success"
             }
 
@@ -1702,7 +1713,7 @@ Return ONLY JSON:
 
             background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
             return {
-                "reply": ai_reply,
+                "reply": personalize_reply(ai_reply, user_name),
                 "status": "success",
                 "db_updated": False
             }
@@ -1738,7 +1749,7 @@ Known User Information:
         background_tasks.add_task(save_to_firestore_bg, uid, user_message, ai_reply)
 
         return {
-            "reply": ai_reply,
+            "reply": personalize_reply(ai_reply, user_name),
             "status": "success",
             "db_updated": False
         }
@@ -1753,7 +1764,7 @@ Known User Information:
             "details": ["Request timed out"]
         }
         return {
-            "reply": ai_reply,
+            "reply": personalize_reply(ai_reply, user_name),
             "status": "success",
             "db_updated": False
         }
@@ -1766,7 +1777,7 @@ Known User Information:
             "details": [str(e)]
         }
         return {
-            "reply": ai_reply,
+            "reply": personalize_reply(ai_reply, user_name),
             "status": "success",
             "db_updated": False
         }
