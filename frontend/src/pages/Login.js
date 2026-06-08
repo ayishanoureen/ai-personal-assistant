@@ -17,7 +17,8 @@ export default function Login() {
             await API.post(
                 "/save-profile",
                 {
-                    name: firstName
+                    name: firstName,
+                    email: user.email
                 },
                 {
                     headers: {

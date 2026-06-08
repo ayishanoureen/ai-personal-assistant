@@ -17,6 +17,9 @@ import difflib
 from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import timezone
+import smtplib
+from email.mime,text import MIMEText 
+from email.mime.multipart import MIMEMultipart
 scheduler = BackgroundScheduler()
 
 async def get_current_user(authorization: str = Header(None)):
@@ -597,6 +600,54 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
+def send_due_reminder_emails():
+    try:
+        logger.info("Checking due reminders..")
+        now = datetime.datetime.now()
+
+        reminders = db.collection_group("reminders").stream()
+        for reminder_doc in reminders:
+            reminder = reminder_doc.to_dict()
+            if reminder.get("email_sent", False):
+                continue
+            repeat_type = reminder.get("repeat_type")
+            if repeat_type and repeat_type != "none":
+                continue
+            reminder_date = reminder.get("date")
+            reminder_time = reminder.get("time")
+            if not reminder_date or not reminder_time:
+                continue
+            try:
+                reminder_datetime = datetime.datetime.strptime(
+                    f"{reminder_date} {reminder_time}",
+                    "%Y-%m-%d %I:%M %p"
+                )
+            except Exception:
+                continue
+             if reminder_datetime <= now:
+                user_ref = (reminder_doc.reference.parent.parent)
+                user_doc = user_ref.get()
+                if not user_doc.exists:
+                    continue
+                user_data = user_doc.to_dict()
+                email = user_data.get("email")
+                name = user_data.get("name", "User")
+
+                if not email:
+                    continue
+
+                success = send_email_notification("ayishanoureen05@gmail.com", "Ayisha", "Call mom", "12:45 PM")
+                print(success)
+                if success:
+                    reminder_doc.reference.update({"email_sent": True})
+                    logger.info(
+                        f"Notification sent for reminder "
+                        f"{reminder_doc.id}"
+                    )
+    except Exception as e:
+        logger.exception(f"send_due_reminder_emails failed: {e}")
+
+
 def cleanup_expired_reminders():
     try:
         logger.info("Starting expired reminder cleanup...")
@@ -656,8 +707,7 @@ def cleanup_expired_reminders():
                     )
                     continue
 
-                # Delete expired one-time reminders
-                if reminder_datetime < now:
+                if reminder_datetime < now - datetime.timedelta(minutes=10):
                     reminder_doc.reference.delete()
 
                     deleted_count += 1
@@ -722,6 +772,8 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 if not GEMINI_API_KEY:
     logger.warning("GEMINI_API_KEY is not set in environment variables! Gemini requests will fail.")
@@ -770,15 +822,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def personalize_reply(ai_reply, user_name=""):
-    if (
-        user_name
-        and isinstance(ai_reply, dict)
-        and "summary" in ai_reply
-        and not ai_reply["summary"].startswith(user_name)
-    ):
-        ai_reply["summary"] = f"{user_name}, {ai_reply['summary']}"
+def send_email_notification(recipient_email, user_name, reminder_text, reminder_time):
+    try:
+        subject = f"Reminder: {reminder_text}"
 
+        body = f"""
+Hi {user_name},
+
+This is a reminder from AI Personal Assistant.
+
+Task: {reminder_text}
+Time: {reminder_time}
+
+Have a great day!
+
+Best regards,
+AI Personal Assistant
+"""
+
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL_ADDRESS
+        msg["To"] = recipient_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            server.sendmail(
+                EMAIL_ADDRESS,
+                recipient_email,
+                msg.as_string()
+            )
+
+        logger.info(f"Reminder email sent to {recipient_email}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send reminder email: {e}")
+        return False
+
+def personalize_reply(ai_reply, user_name=""):
+    if (user_name and isinstance(ai_reply, dict) and "summary" in ai_reply and not ai_reply["summary"].startswith(user_name)):
+        ai_reply["summary"] = f"{user_name}, {ai_reply['summary']}"
     return ai_reply  
 
 def get_system_prompt(user_name: str = "") -> str:
@@ -1118,6 +1203,7 @@ async def chat(
                     "repeat_interval": repeat_interval,
                     "repeat_unit": repeat_unit,
                     "repeat_weekdays": repeat_weekdays,
+                    "email_sent": False,
                     "created_at": firestore.SERVER_TIMESTAMP
                 })    
                 logger.info(f"[REMINDER_CREATED] Text: '{reminder_text}', Date: '{reminder_date}', Time: '{reminder_time}', Recurring: {is_recurring}")
@@ -2181,10 +2267,14 @@ async def startup_event():
             "interval",
             minutes=1
         )
-
+        scheduler.add_job(
+            send_due_reminder_emails,
+            "interval",
+            minutes=1
+        )
         scheduler.start()
 
-        logger.info("Cleanup scheduler started successfully")
+        logger.info("Scheduler started successfully")
 
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
@@ -2198,7 +2288,8 @@ async def save_profile(
 
     db.collection("users").document(uid).set(
         {
-            "name": request.name
+            "name": request.name,
+            "email": request.email
         },
         merge=True
     )
