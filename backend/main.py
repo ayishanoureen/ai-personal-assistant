@@ -624,7 +624,7 @@ def send_due_reminder_emails():
                 )
             except Exception:
                 continue
-             if reminder_datetime <= now:
+            if reminder_datetime <= now:
                 user_ref = (reminder_doc.reference.parent.parent)
                 user_doc = user_ref.get()
                 if not user_doc.exists:
@@ -636,7 +636,7 @@ def send_due_reminder_emails():
                 if not email:
                     continue
 
-                success = send_email_notification("ayishanoureen05@gmail.com", "Ayisha", "Call mom", "12:45 PM")
+                success = send_email_notification("ayishanoureen05@gmail.com", "Ayisha", "Call mom", "12:53 PM")
                 print(success)
                 if success:
                     reminder_doc.reference.update({"email_sent": True})
