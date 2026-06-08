@@ -2,8 +2,11 @@ from datetime import datetime, timedelta
 from firebase_admin import firestore
 from dateutil.relativedelta import relativedelta
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
 
 logger = logging.getLogger("scheduler")
+
+scheduler = BackgroundScheduler()
 
 WEEKDAY_MAP = {
     "monday": 0, "mon": 0,
@@ -285,4 +288,16 @@ def process_recurring_reminders():
     except Exception as e:
         logger.error(f"Scheduler crash: {e}")
 
-# No-op since background scheduler is removed
+scheduler.add_job(
+    process_recurring_reminders,
+    "interval",
+    minutes=1,
+    max_instances=1,
+    coalesce=True,
+    misfire_grace_time=30
+)
+
+def start_scheduler():
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("Recurring reminder scheduler started successfully")
