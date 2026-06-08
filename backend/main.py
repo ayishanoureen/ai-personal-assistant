@@ -637,7 +637,6 @@ def send_due_reminder_emails():
                     continue
 
                 success = send_email_notification(email, name, reminder.get("text", ""), reminder_time)
-                print(success)
                 if success:
                     reminder_doc.reference.update({"email_sent": True})
                     logger.info(
