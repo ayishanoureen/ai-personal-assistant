@@ -713,7 +713,7 @@ def cleanup_expired_reminders():
                     )
                     continue
 
-                if reminder_datetime < now - datetime.timedelta(minutes=10):
+                if reminder_datetime < now:
                     reminder_doc.reference.delete()
 
                     deleted_count += 1
