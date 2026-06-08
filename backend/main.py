@@ -14,15 +14,12 @@ import re
 import datetime
 import asyncio
 import difflib
-from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
-from apscheduler.schedulers.background import BackgroundScheduler
+from scheduler import calculate_next_occurrence_datetime, WEEKDAY_MAP
 from datetime import timezone
 import smtplib
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
-
-scheduler = BackgroundScheduler()
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization: 
@@ -602,62 +599,123 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
-def send_due_reminder_emails():
+def parse_reminder_datetime(date_str: str, time_str: str) -> datetime.datetime | None:
+    if not date_str or not time_str:
+        return None
+    
+    datetime_str = f"{date_str.strip()} {time_str.strip()}"
+    formats = [
+        "%Y-%m-%d %I:%M %p",  # 07:00 PM
+        "%Y-%m-%d %I %p",     # 7 PM
+        "%Y-%m-%d %H:%M",     # 19:00
+    ]
+    
+    for fmt in formats:
+        try:
+            dt = datetime.datetime.strptime(datetime_str, fmt)
+            return dt.replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            continue
+            
+    return None
+
+def get_reminders_from_firestore() -> list[dict]:
+    reminders_list = []
+    if not firebase_initialized or not db:
+        logger.warning("Firebase not initialized. Cannot fetch reminders.")
+        return reminders_list
+
     try:
-        logger.info("Checking due reminders..")
-        now = datetime.datetime.now()
+        # Scan all users' reminders using Firestore collection_group("reminders")
+        docs = db.collection_group("reminders").stream()
+        user_cache = {}
 
-        logger.info("STEP 1 - Starting email check")
-        reminders = list(db.collection_group("reminders").stream())
-        logger.info(f"STEP 2 - Found {len(reminders)} reminders")
-        for reminder_doc in reminders:
-            logger.info(f"Processing reminder: {reminder_doc.id}")
-            reminder = reminder_doc.to_dict()
-            logger.info(f"Reminder data: {reminder}")
-            if reminder.get("email_sent", False):
-                continue
-            repeat_type = reminder.get("repeat_type")
-            if repeat_type and repeat_type != "none":
-                continue
-            reminder_date = reminder.get("date")
-            reminder_time = reminder.get("time")
-            if not reminder_date or not reminder_time:
-                continue
+        for doc in docs:
             try:
-                reminder_datetime = datetime.datetime.strptime(
-                    f"{reminder_date} {reminder_time}",
-                    "%Y-%m-%d %I:%M %p"
-                )
-            except Exception:
+                data = doc.to_dict() or {}
+                
+                # Skip reminders already marked email_sent=True
+                if data.get("email_sent", False):
+                    continue
+                
+                # Skip recurring reminders for now (repeat_type and repeat_type != "none")
+                repeat_type = data.get("repeat_type")
+                if repeat_type and repeat_type != "none":
+                    continue
+                
+                user_ref = doc.reference.parent.parent
+                user_id = user_ref.id
+                
+                if user_id not in user_cache:
+                    user_doc = user_ref.get()
+                    user_cache[user_id] = user_doc.to_dict() if user_doc.exists else None
+                
+                user_data = user_cache[user_id]
+                if not user_data or not user_data.get("email"):
+                    continue
+                
+                reminders_list.append({
+                    "id": doc.id,
+                    "ref": doc.reference,
+                    "text": data.get("text", ""),
+                    "date": data.get("date", ""),
+                    "time": data.get("time", ""),
+                    "email_sent": False,
+                    "email": user_data.get("email"),
+                    "user_name": user_data.get("name", "User")
+                })
+            except Exception as e:
+                logger.error(f"Error reading reminder doc {doc.id}: {e}")
                 continue
-            if reminder_datetime <= now:
-                user_ref = (reminder_doc.reference.parent.parent)
-                user_doc = user_ref.get()
-                if not user_doc.exists:
-                    continue
-                user_data = user_doc.to_dict()
-                email = user_data.get("email")
-                name = user_data.get("name", "User")
-
-                if not email:
-                    continue
-
-                success = send_email_notification(email, name, reminder.get("text", ""), reminder_time)
-                if success:
-                    reminder_doc.reference.update({"email_sent": True})
-                    logger.info(
-                        f"Notification sent for reminder "
-                        f"{reminder_doc.id}"
-                    )
     except Exception as e:
-        logger.exception(f"send_due_reminder_emails failed: {e}")
+        logger.error(f"Error in collection group stream: {e}")
 
+    return reminders_list
+
+def mark_as_sent(reminder_ref) -> bool:
+    try:
+        if hasattr(reminder_ref, "update"):
+            reminder_ref.update({"email_sent": True})
+            return True
+        elif isinstance(reminder_ref, str):
+            logger.warning(f"Attempted to mark string reminder_id {reminder_ref} as sent. Expected reference.")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to mark reminder as sent: {e}")
+        return False
+    return False
+
+def process_due_reminders() -> int:
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    reminders = get_reminders_from_firestore()
+    processed_count = 0
+    
+    for r in reminders:
+        try:
+            reminder_dt = parse_reminder_datetime(r["date"], r["time"])
+            if not reminder_dt:
+                continue
+                
+            if reminder_dt <= now_utc:
+                success = send_email_notification(
+                    recipient_email=r["email"],
+                    user_name=r["user_name"],
+                    reminder_text=r["text"],
+                    reminder_time=r["time"]
+                )
+                if success:
+                    mark_as_sent(r["ref"])
+                    processed_count += 1
+        except Exception as e:
+            logger.error(f"Error processing due reminder {r.get('id')}: {e}")
+            continue
+            
+    return processed_count
 
 def cleanup_expired_reminders():
     try:
         logger.info("Starting expired reminder cleanup...")
-
-        now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
         deleted_count = 0
 
         # Search ALL reminders across ALL users
@@ -665,7 +723,7 @@ def cleanup_expired_reminders():
 
         for reminder_doc in reminders:
             try:
-                data = reminder_doc.to_dict()
+                data = reminder_doc.to_dict() or {}
 
                 # Skip recurring reminders
                 repeat_type = data.get("repeat_type")
@@ -678,64 +736,22 @@ def cleanup_expired_reminders():
                 if not reminder_date or not reminder_time:
                     continue
 
-                try:
-                    datetime_str = f"{reminder_date} {reminder_time}"
-
-                    formats = [
-                        "%Y-%m-%d %I:%M %p",  # 07:00 PM
-                        "%Y-%m-%d %I %p",     # 7 PM
-                        "%Y-%m-%d %H:%M",     # 19:00
-                    ]
-
-                    reminder_datetime = None
-
-                    for fmt in formats:
-                        try:
-                            reminder_datetime = datetime.datetime.strptime(
-                                datetime_str,
-                                fmt
-                            )
-                            reminder_datetime = reminder_datetime.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
-                            break
-                        except ValueError:
-                            pass
-
-                    if reminder_datetime is None:
-                        logger.warning(
-                            f"Failed parsing reminder datetime for "
-                            f"{reminder_doc.id}: {datetime_str}"
-                        )
-                        continue
-                except Exception as e:
-                    logger.warning(
-                        f"Failed parsing reminder datetime "
-                        f"for {reminder_doc.id}: {e}"
-                    )
+                reminder_dt = parse_reminder_datetime(reminder_date, reminder_time)
+                if reminder_dt is None:
                     continue
 
-                if reminder_datetime < now:
+                if reminder_dt < now_utc:
                     reminder_doc.reference.delete()
-
                     deleted_count += 1
-
-                    logger.info(
-                        f"Deleted expired reminder: "
-                        f"{data.get('text', 'Unknown')}"
-                    )
+                    logger.info(f"Deleted expired reminder: {data.get('text', 'Unknown')}")
 
             except Exception as e:
-                logger.error(
-                    f"Error processing reminder {reminder_doc.id}: {e}"
-                )
+                logger.error(f"Error processing reminder {reminder_doc.id} for cleanup: {e}")
 
-        logger.info(
-            f"Cleanup complete. Deleted {deleted_count} reminders."
-        )
+        logger.info(f"Cleanup complete. Deleted {deleted_count} reminders.")
 
     except Exception as e:
-        logger.exception(
-            f"cleanup_expired_reminders failed: {e}"
-        )
+        logger.exception(f"cleanup_expired_reminders failed: {e}")
 
 def extract_reminder_details(message: str):
     res = parse_reminder_message(message, datetime.datetime.now())
@@ -2268,23 +2284,7 @@ def clear_memory(uid: str = Depends(get_current_user)):
     return {"status": "error", "message": "Firebase not available"}
 @app.on_event("startup")
 async def startup_event():
-    try:
-        scheduler.add_job(
-            cleanup_expired_reminders,
-            "interval",
-            minutes=1
-        )
-        scheduler.add_job(
-            send_due_reminder_emails,
-            "interval",
-            minutes=1
-        )
-        scheduler.start()
-
-        logger.info("Scheduler started successfully")
-
-    except Exception as e:
-        logger.error(f"Scheduler failed: {e}")
+    logger.info("FastAPI backend started successfully")
 
 @app.post("/save-profile")
 async def save_profile(
@@ -2302,3 +2302,19 @@ async def save_profile(
     )
 
     return {"success": True}
+
+@app.get("/process-reminders")
+def process_reminders():
+    try:
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        processed_count = process_due_reminders()
+        cleanup_expired_reminders()
+        return {
+            "status": "ok",
+            "processed": processed_count,
+            "checked_at": now_utc.isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error in /process-reminders endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
