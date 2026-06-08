@@ -11,6 +11,7 @@ export default function useAutoLogout() {
             const auth = getAuth();
             await signOut(auth);
             sessionStorage.removeItem("token");
+            sessionStorage.removeItem("userName");
             localStorage.removeItem("lastActivity");
 
             window.location.replace("/login");

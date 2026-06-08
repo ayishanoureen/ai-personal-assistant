@@ -12,11 +12,12 @@ export default function Login() {
             const token = await user.getIdToken(true);
 
             sessionStorage.setItem("token", token);
-            sessionStorage.setItem("userName", user.displayName)
+            const firstName = user.displayName?.split(" ")[0] || "";
+            sessionStorage.setItem("userName", firstName);
             await API.post(
                 "/save-profile",
                 {
-                    name: user.displayName
+                    name: firstName
                 },
                 {
                     headers: {

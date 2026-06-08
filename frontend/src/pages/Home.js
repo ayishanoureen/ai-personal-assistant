@@ -4,8 +4,10 @@ import API from "../api/axios";
 
 export default function Home() {
     const [message, setMessage] = useState("");
+    const userName = sessionStorage.getItem("userName");
+    const firstName = userName?.split(" ")[0] || "";
     const [chat, setChat] = useState([
-        { sender: "ai", text: "Hello! I am your AI Personal Assistant. How can I help you today?" }
+        { sender: "ai", text: userName ? `Hello ${firstName}! I am your AI Personal Assistant. How can I help you today?` : "Hello! I am your AI Personal Assistant. How can I help you today?" }
     ]);
     const [isLoading, setIsLoading] = useState(false);
     const [isListening, setIsListening] = useState(false)
@@ -28,7 +30,6 @@ export default function Home() {
     const [editingNote, setEditingNote] = useState(null);
     const [editNoteContent, setEditNoteContent] = useState("");
     const [dashboardMsg, setDashboardMsg] = useState("");
-    const userName = sessionStorage.getItem("userName")
 
     const scrollToBottom = () => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });

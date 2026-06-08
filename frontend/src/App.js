@@ -16,6 +16,7 @@ function ProtectedRoute({ children }) {
 
   if (!token || expired) {
     sessionStorage.removeItem("token");
+    sessionStorage.removeItem("userName");
     localStorage.removeItem("lastActivity");
 
     return <Navigate to="/login" replace />;
