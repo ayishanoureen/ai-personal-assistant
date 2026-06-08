@@ -20,6 +20,8 @@ from datetime import timezone
 import smtplib
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
+from zoneinfo import ZoneInfo
+
 scheduler = BackgroundScheduler()
 
 async def get_current_user(authorization: str = Header(None)):
@@ -605,9 +607,13 @@ def send_due_reminder_emails():
         logger.info("Checking due reminders..")
         now = datetime.datetime.now()
 
-        reminders = db.collection_group("reminders").stream()
+        logger.info("STEP 1 - Starting email check")
+        reminders = list(db.collection_group("reminders").stream())
+        logger.info(f"STEP 2 - Found {len(reminders)} reminders")
         for reminder_doc in reminders:
+            logger.info(f"Processing reminder: {reminder_doc.id}")
             reminder = reminder_doc.to_dict()
+            logger.info(f"Reminder data: {reminder}")
             if reminder.get("email_sent", False):
                 continue
             repeat_type = reminder.get("repeat_type")
@@ -651,7 +657,7 @@ def cleanup_expired_reminders():
     try:
         logger.info("Starting expired reminder cleanup...")
 
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
         deleted_count = 0
 
         # Search ALL reminders across ALL users
@@ -689,6 +695,7 @@ def cleanup_expired_reminders():
                                 datetime_str,
                                 fmt
                             )
+                            reminder_datetime = reminder_datetime.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
                             break
                         except ValueError:
                             pass
