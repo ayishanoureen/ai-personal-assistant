@@ -18,7 +18,7 @@ from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKD
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import timezone
 import smtplib
-from email.mime,text import MIMEText 
+from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 scheduler = BackgroundScheduler()
 
