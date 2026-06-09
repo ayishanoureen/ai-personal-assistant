@@ -19,7 +19,9 @@ import smtplib
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
+from apscheduler.schedulers.background import BackgroundScheduler
 
+scheduler = BackgroundScheduler()
 router = APIRouter()
 
 async def get_current_user(authorization: str = Header(None)):
