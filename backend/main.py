@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile, File, Form, Header, Depends
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile, File, Form, Header, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -23,6 +23,7 @@ from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
 
 scheduler = BackgroundScheduler()
+router = APIRouter()
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization: 
@@ -713,7 +714,7 @@ def cleanup_expired_reminders():
                     )
                     continue
 
-                if reminder_datetime < now:
+                if reminder_datetime < now and data.get("email_sent", False):
                     reminder_doc.reference.delete()
 
                     deleted_count += 1
@@ -2303,3 +2304,71 @@ async def save_profile(
 
     return {"success": True}
 
+@router.get("/process-reminders")
+async def process_reminders():
+    try:
+        logger.info("Starting reminder processing")
+        now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+        processed = 0
+        reminders = db.collection_group("reminders").stream()
+        for reminder_doc in reminders:
+            try:
+                data = reminder_doc.to_dict()
+                if data.get("email_sent", False):
+                    continue
+                reminder_date = data.get("date")
+                reminder_time = data.get("time")
+
+                if not reminder_date or not reminder_time:
+                    continue
+
+                datetime_str = (f"{reminder_date} {reminder_time}")
+
+                format = ["%Y-%m-%d %H:%M %p", "%Y-%m-%d %I %p", "%Y-%m-%d %H:%M"]
+                reminder_datetime = None
+                for fmt in format:
+                    try:
+                        reminder_datetime = datetime.datetime.strptime(datetime_str, fmt)
+                        reminder_datetime = reminder_datetime.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                        break
+                    except ValueError:
+                        pass
+                if reminder_datetime is None:
+                    logger.warning(f"Could not parse reminder {reminder_doc.id}: {datetime_str}")
+                    continue
+
+                if reminder_datetime <= now:
+                    user_id = (
+                        reminder_doc.reference
+                        .parent.parent.id
+                    )
+                    user_doc = db.collection("users").document(user_id).get()
+                    if not user_doc.exists:
+                        continue
+                    user_data = user_doc.to_dict()
+                    email = user_data.get("email")
+                    if not email:
+                        logger.warning(f"User {user_id} has no email")
+                        continue
+                    reminder_text = data.get("text", "reminder")
+                    user_name = user_data.get("name", "User")
+                    email_sent = send_email_notification(recipient_email=email, user_name=user_name, reminder_text=reminder_text, reminder_time=reminder_time)
+                    if email_sent:
+                        reminder_doc.reference.update({"email_sent": True, "sent_at": firestore.SERVER_TIMESTAMP})
+                        processed +=1
+                        logger.info(f"Sent reminder {reminder_text} to {email}")
+            except Exception as e:
+                logger.error(f"Error processing reminder {reminder_doc.id}")
+        return {
+            "status": "success",
+            "processed": processed,
+            "checked_at": now.isoformat()
+        }
+    except Exception as e:
+        logger.exception(f"process_reminders failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+                    
