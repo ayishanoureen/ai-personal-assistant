@@ -826,45 +826,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def send_email_notification(recipient_email, user_name, reminder_text, reminder_time):
-    try:
-        subject = f"Reminder: {reminder_text}"
-
-        body = f"""
-Hi {user_name},
-
-This is a reminder from AI Personal Assistant.
-
-Task: {reminder_text}
-Time: {reminder_time}
-
-Have a great day!
-
-Best regards,
-AI Personal Assistant
-"""
-
-        msg = MIMEMultipart()
-        msg["From"] = EMAIL_ADDRESS
-        msg["To"] = recipient_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-            server.sendmail(
-                EMAIL_ADDRESS,
-                recipient_email,
-                msg.as_string()
-            )
-
-        logger.info(f"Reminder email sent to {recipient_email}")
-        return True
-
-    except Exception as e:
-        logger.error(f"Failed to send reminder email: {e}")
-        return False
-
 def personalize_reply(ai_reply, user_name=""):
     if (user_name and isinstance(ai_reply, dict) and "summary" in ai_reply and not ai_reply["summary"].startswith(user_name)):
         ai_reply["summary"] = f"{user_name}, {ai_reply['summary']}"

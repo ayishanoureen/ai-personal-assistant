@@ -3,10 +3,11 @@ import logging
 
 from firebase_admin import firestore
 from zoneinfo import ZoneInfo
-
-from main import db, send_email_notification
+from firebase_config import db
+from email_service import send_email_notification
 
 logger = logging.getLogger(__name__)
+
 def send_due_reminder_emails():
     try:
         logger.info("Checking due reminders..")
