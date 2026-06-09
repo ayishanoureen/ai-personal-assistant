@@ -14,15 +14,12 @@ import re
 import datetime
 import asyncio
 import difflib
-from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import timezone
 import smtplib
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
 
-scheduler = BackgroundScheduler()
 router = APIRouter()
 
 async def get_current_user(authorization: str = Header(None)):
@@ -603,57 +600,6 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
-def send_due_reminder_emails():
-    try:
-        logger.info("Checking due reminders..")
-        now = datetime.datetime.now()
-
-        logger.info("STEP 1 - Starting email check")
-        reminders = list(db.collection_group("reminders").stream())
-        logger.info(f"STEP 2 - Found {len(reminders)} reminders")
-        for reminder_doc in reminders:
-            logger.info(f"Processing reminder: {reminder_doc.id}")
-            reminder = reminder_doc.to_dict()
-            logger.info(f"Reminder data: {reminder}")
-            if reminder.get("email_sent", False):
-                continue
-            repeat_type = reminder.get("repeat_type")
-            if repeat_type and repeat_type != "none":
-                continue
-            reminder_date = reminder.get("date")
-            reminder_time = reminder.get("time")
-            if not reminder_date or not reminder_time:
-                continue
-            try:
-                reminder_datetime = datetime.datetime.strptime(
-                    f"{reminder_date} {reminder_time}",
-                    "%Y-%m-%d %I:%M %p"
-                )
-            except Exception:
-                continue
-            if reminder_datetime <= now:
-                user_ref = (reminder_doc.reference.parent.parent)
-                user_doc = user_ref.get()
-                if not user_doc.exists:
-                    continue
-                user_data = user_doc.to_dict()
-                email = user_data.get("email")
-                name = user_data.get("name", "User")
-
-                if not email:
-                    continue
-
-                success = send_email_notification(email, name, reminder.get("text", ""), reminder_time)
-                if success:
-                    reminder_doc.reference.update({"email_sent": True})
-                    logger.info(
-                        f"Notification sent for reminder "
-                        f"{reminder_doc.id}"
-                    )
-    except Exception as e:
-        logger.exception(f"send_due_reminder_emails failed: {e}")
-
-
 def cleanup_expired_reminders():
     try:
         logger.info("Starting expired reminder cleanup...")
@@ -828,7 +774,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(router)
 
 def send_email_notification(recipient_email, user_name, reminder_text, reminder_time):
     try:
@@ -2271,16 +2216,6 @@ def clear_memory(uid: str = Depends(get_current_user)):
 @app.on_event("startup")
 async def startup_event():
     try:
-        scheduler.add_job(
-            cleanup_expired_reminders,
-            "interval",
-            minutes=1
-        )
-        scheduler.add_job(
-            send_due_reminder_emails,
-            "interval",
-            minutes=1
-        )
         scheduler.start()
 
         logger.info("Scheduler started successfully")
@@ -2325,7 +2260,7 @@ async def process_reminders():
 
                 datetime_str = (f"{reminder_date} {reminder_time}")
 
-                format = ["%Y-%m-%d %H:%M %p", "%Y-%m-%d %I %p", "%Y-%m-%d %H:%M"]
+                format = ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %I %p", "%Y-%m-%d %H:%M"]
                 reminder_datetime = None
                 for fmt in format:
                     try:
@@ -2371,5 +2306,5 @@ async def process_reminders():
             "status": "error",
             "message": str(e)
         }
-
+app.include_router(router)
                     
