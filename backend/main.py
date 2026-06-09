@@ -2,8 +2,7 @@ from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile,
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
-import firebase_admin
-from firebase_admin import credentials, firestore, auth
+from firebase_config import db
 from dotenv import load_dotenv
 import os
 import logging
@@ -785,33 +784,6 @@ else:
     logger.info(f"Configuring Gemini with model: {GEMINI_MODEL}")
     genai.configure(api_key=GEMINI_API_KEY)
 
-db = None
-firebase_initialized = False
-
-try:
-    firebase_credentials = os.getenv("FIREBASE_CREDENTIALS")
-
-    if firebase_credentials:
-        cred_dict = json.loads(firebase_credentials)
-
-        cred = credentials.Certificate(cred_dict)
-
-        firebase_admin.initialize_app(cred)
-
-        db = firestore.client()
-
-        firebase_initialized = True
-
-        logger.info(
-            f"Successfully connected to Firestore project: "
-            f"{firebase_admin.get_app().project_id}"
-        )
-
-    else:
-        logger.warning("FIREBASE_CREDENTIALS environment variable not found.")
-
-except Exception as e:
-    logger.error(f"Firebase initialization failed: {e}")
 app = FastAPI(
     title="AI Personal Assistant API",
     description="Backend API for AI Personal Assistant with Gemini and Firestore integration.",
