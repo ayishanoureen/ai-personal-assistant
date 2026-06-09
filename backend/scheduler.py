@@ -3,6 +3,10 @@ from firebase_admin import firestore
 from dateutil.relativedelta import relativedelta
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
+from reminder_service import (
+    send_due_reminder_emails,
+    cleanup_expired_reminders
+)   
 
 logger = logging.getLogger("scheduler")
 
@@ -288,16 +292,40 @@ def process_recurring_reminders():
     except Exception as e:
         logger.error(f"Scheduler crash: {e}")
 
-scheduler.add_job(
-    process_recurring_reminders,
-    "interval",
-    minutes=1,
-    max_instances=1,
-    coalesce=True,
-    misfire_grace_time=30
-)
+def heartbeat():
+    logger.info("Scheduler heartbeat")
 
 def start_scheduler():
     if not scheduler.running:
+
+        scheduler.add_job(
+            process_recurring_reminders,
+            "interval",
+            minutes=1,
+            id="recurring_reminders"
+        )
+
+        scheduler.add_job(
+            heartbeat,
+            "interval",
+            minutes=1,
+            id="heartbeat"
+        )
+
+        scheduler.add_job(
+            send_due_reminder_emails,
+            "interval",
+            minutes=1,
+            id="send_emails"
+        )
+
+        scheduler.add_job(
+            cleanup_expired_reminders,
+            "interval",
+            minutes=1,
+            id="cleanup_reminders"
+        )
+
         scheduler.start()
-        logger.info("Recurring reminder scheduler started successfully")
+
+        logger.info("Scheduler started")

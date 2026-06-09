@@ -14,15 +14,13 @@ import re
 import datetime
 import asyncio
 import difflib
-from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import timezone
 import smtplib
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
-
-scheduler = BackgroundScheduler()
+from scheduler import start_scheduler
+from reminder_service import send_due_reminder_emails, cleanup_expired_reminders
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization: 
@@ -2266,25 +2264,6 @@ def clear_memory(uid: str = Depends(get_current_user)):
         db.collection("users").document(uid).collection("memory").document("profile").delete()
         return {"status": "success", "message": "Memory cleared"}
     return {"status": "error", "message": "Firebase not available"}
-@app.on_event("startup")
-async def startup_event():
-    try:
-        scheduler.add_job(
-            cleanup_expired_reminders,
-            "interval",
-            minutes=1
-        )
-        scheduler.add_job(
-            send_due_reminder_emails,
-            "interval",
-            minutes=1
-        )
-        scheduler.start()
-
-        logger.info("Scheduler started successfully")
-
-    except Exception as e:
-        logger.error(f"Scheduler failed: {e}")
 
 @app.post("/save-profile")
 async def save_profile(
@@ -2303,3 +2282,10 @@ async def save_profile(
 
     return {"success": True}
 
+@app.on_event("startup")
+async def startup_event():
+    try:
+        start_scheduler()
+        logger.info("Startup complete")
+    except Exception as e:
+        logger.error(f"Scheduler failed: {e}")
