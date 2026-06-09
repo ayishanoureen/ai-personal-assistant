@@ -828,6 +828,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(router)
 
 def send_email_notification(recipient_email, user_name, reminder_text, reminder_time):
     try:
