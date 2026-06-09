@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile, File, Form, Header, Depends, APIRouter
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks, UploadFile, File, Form, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -14,15 +14,15 @@ import re
 import datetime
 import asyncio
 import difflib
+from scheduler import start_scheduler, calculate_next_occurrence_datetime, WEEKDAY_MAP
+from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import timezone
 import smtplib
 from email.mime.text import MIMEText 
 from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
-from apscheduler.schedulers.background import BackgroundScheduler
 
 scheduler = BackgroundScheduler()
-router = APIRouter()
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization: 
@@ -602,6 +602,57 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         "repeat_weekdays": repeat_data["repeat_weekdays"] if repeat_data else None
     }
 
+def send_due_reminder_emails():
+    try:
+        logger.info("Checking due reminders..")
+        now = datetime.datetime.now()
+
+        logger.info("STEP 1 - Starting email check")
+        reminders = list(db.collection_group("reminders").stream())
+        logger.info(f"STEP 2 - Found {len(reminders)} reminders")
+        for reminder_doc in reminders:
+            logger.info(f"Processing reminder: {reminder_doc.id}")
+            reminder = reminder_doc.to_dict()
+            logger.info(f"Reminder data: {reminder}")
+            if reminder.get("email_sent", False):
+                continue
+            repeat_type = reminder.get("repeat_type")
+            if repeat_type and repeat_type != "none":
+                continue
+            reminder_date = reminder.get("date")
+            reminder_time = reminder.get("time")
+            if not reminder_date or not reminder_time:
+                continue
+            try:
+                reminder_datetime = datetime.datetime.strptime(
+                    f"{reminder_date} {reminder_time}",
+                    "%Y-%m-%d %I:%M %p"
+                )
+            except Exception:
+                continue
+            if reminder_datetime <= now:
+                user_ref = (reminder_doc.reference.parent.parent)
+                user_doc = user_ref.get()
+                if not user_doc.exists:
+                    continue
+                user_data = user_doc.to_dict()
+                email = user_data.get("email")
+                name = user_data.get("name", "User")
+
+                if not email:
+                    continue
+
+                success = send_email_notification(email, name, reminder.get("text", ""), reminder_time)
+                if success:
+                    reminder_doc.reference.update({"email_sent": True})
+                    logger.info(
+                        f"Notification sent for reminder "
+                        f"{reminder_doc.id}"
+                    )
+    except Exception as e:
+        logger.exception(f"send_due_reminder_emails failed: {e}")
+
+
 def cleanup_expired_reminders():
     try:
         logger.info("Starting expired reminder cleanup...")
@@ -662,7 +713,7 @@ def cleanup_expired_reminders():
                     )
                     continue
 
-                if reminder_datetime < now and data.get("email_sent", False):
+                if reminder_datetime < now:
                     reminder_doc.reference.delete()
 
                     deleted_count += 1
@@ -2218,6 +2269,16 @@ def clear_memory(uid: str = Depends(get_current_user)):
 @app.on_event("startup")
 async def startup_event():
     try:
+        scheduler.add_job(
+            cleanup_expired_reminders,
+            "interval",
+            minutes=1
+        )
+        scheduler.add_job(
+            send_due_reminder_emails,
+            "interval",
+            minutes=1
+        )
         scheduler.start()
 
         logger.info("Scheduler started successfully")
@@ -2242,91 +2303,3 @@ async def save_profile(
 
     return {"success": True}
 
-@router.get("/process-reminders")
-async def process_reminders():
-    try:
-        logger.info("Starting reminder processing")
-        now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
-        processed = 0
-        reminders = db.collection_group("reminders").stream()
-        logger.info("Firestore query created")
-        for reminder_doc in reminders:
-            logger.info(f"Processing reminder {reminder_doc.id}")
-            try:
-                logger.info("Reading reminder data")
-                data = reminder_doc.to_dict()
-                logger.info("Checking email_sent")
-                if data.get("email_sent", False):
-                    continue
-                logger.info("Reading date")
-                reminder_date = data.get("date")
-                logger.info("Reading time")
-                reminder_time = data.get("time")
-
-                if not reminder_date or not reminder_time:
-                    logger.info("Missing date or time")
-                    continue
-
-                logger.info("Building datetime string")
-                datetime_str = (f"{reminder_date} {reminder_time}")
-
-                logger.info(f"Datetime string: {datetime_str}")
-                format = ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %I %p", "%Y-%m-%d %H:%M"]
-                reminder_datetime = None
-                logger.info("Parsing datetime")
-                for fmt in format:
-                    try:
-                        reminder_datetime = datetime.datetime.strptime(datetime_str, fmt)
-                        reminder_datetime = reminder_datetime.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
-                        logger.info(f"Parsed using format {fmt}")
-                        break
-                    except ValueError:
-                        pass
-                if reminder_datetime is None:
-                    logger.warning(f"Could not parse reminder {reminder_doc.id}: {datetime_str}")
-                    continue
-
-                logger.info(f"Reminder datetime: {reminder_datetime}")
-                logger.info("Checking if rmeinder is due")
-                if reminder_datetime <= now:
-                    logger.info("Reminder is due")
-                    user_id = (
-                        reminder_doc.reference
-                        .parent.parent.id
-                    )
-                    logger.info(f"Getting user document: {user_id}")
-                    user_doc = db.collection("users").document(user_id).get()
-                    logger.info("User document retrieved")
-                    if not user_doc.exists:
-                        logger.info("User doc doesnt exist")
-                        continue
-                    user_data = user_doc.to_dict()
-                    logger.info("Reading user email")
-                    email = user_data.get("email")
-                    if not email:
-                        logger.warning(f"User {user_id} has no email")
-                        continue
-                    reminder_text = data.get("text", "reminder")
-                    logger.info("Reading user name")
-                    user_name = user_data.get("name", "User")
-                    logger.info("About to send email")
-                    email_sent = send_email_notification(recipient_email=email, user_name=user_name, reminder_text=reminder_text, reminder_time=reminder_time)
-                    if email_sent:
-                        reminder_doc.reference.update({"email_sent": True, "sent_at": firestore.SERVER_TIMESTAMP})
-                        processed +=1
-                        logger.info(f"Sent reminder {reminder_text} to {email}")
-            except Exception as e:
-                logger.error(f"Error processing reminder {reminder_doc.id}")
-        return {
-            "status": "success",
-            "processed": processed,
-            "checked_at": now.isoformat()
-        }
-    except Exception as e:
-        logger.exception(f"process_reminders failed: {e}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-app.include_router(router)
-                    
