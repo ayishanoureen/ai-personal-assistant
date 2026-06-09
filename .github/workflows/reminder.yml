@@ -1,0 +1,14 @@
+name: AI Pesonal Assistant
+
+on:
+  schedule:
+    - cron: "*/1 * * * *"
+
+jobs:
+  call-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger reminder processor
+        run: |
+          curl https://ai-personal-assistant-1-e2iq.onrender.com/process-reminders
