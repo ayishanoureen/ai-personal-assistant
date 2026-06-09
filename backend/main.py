@@ -21,15 +21,23 @@ from zoneinfo import ZoneInfo
 from scheduler import start_scheduler
 from reminder_service import send_due_reminder_emails, cleanup_expired_reminders
 
+from firebase_admin import auth
+
 async def get_current_user(authorization: str = Header(None)):
-    if not authorization: 
-        raise HTTPException(401, "Not authenticated")
-    token = authorization.replace("Bearer ", "")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid auth format")
+
+    token = authorization.split(" ")[1]
+
     try:
         decoded = auth.verify_id_token(token)
         return decoded["uid"]
-    except Exception:
-        raise HTTPException(401, "Invaid token")
+
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 def validate_gemini_response(response_dict: dict) -> dict:
     if not isinstance(response_dict, dict):
@@ -2203,7 +2211,12 @@ async def save_profile(
     request: ProfileRequest,
     authorization: str = Header(None)
 ):
-    uid = await get_current_user(authorization)
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing token")
+
+    token = authorization.split(" ")[1]  # 🔥 REMOVE "Bearer"
+
+    uid = await get_current_user(token)
 
     db.collection("users").document(uid).set(
         {
