@@ -2249,7 +2249,9 @@ async def process_reminders():
         now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
         processed = 0
         reminders = db.collection_group("reminders").stream()
+        logger.info("Firestore query created")
         for reminder_doc in reminders:
+            logger.info(f"Processing reminder {reminder_doc.id}")
             try:
                 data = reminder_doc.to_dict()
                 if data.get("email_sent", False):
