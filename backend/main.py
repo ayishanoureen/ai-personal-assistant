@@ -2253,23 +2253,32 @@ async def process_reminders():
         for reminder_doc in reminders:
             logger.info(f"Processing reminder {reminder_doc.id}")
             try:
+                logger.info("Reading reminder data")
                 data = reminder_doc.to_dict()
+                logger.info("Checking email_sent")
                 if data.get("email_sent", False):
                     continue
+                logger.info("Reading date")
                 reminder_date = data.get("date")
+                logger.info("Reading time")
                 reminder_time = data.get("time")
 
                 if not reminder_date or not reminder_time:
+                    logger.info("Missing date or time")
                     continue
 
+                logger.info("Building datetime string")
                 datetime_str = (f"{reminder_date} {reminder_time}")
 
+                logger.info(f"Datetime string: {datetime_str}")
                 format = ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %I %p", "%Y-%m-%d %H:%M"]
                 reminder_datetime = None
+                logger.info("Parsing datetime")
                 for fmt in format:
                     try:
                         reminder_datetime = datetime.datetime.strptime(datetime_str, fmt)
                         reminder_datetime = reminder_datetime.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                        logger.info(f"Parsed using format {fmt}")
                         break
                     except ValueError:
                         pass
@@ -2277,7 +2286,10 @@ async def process_reminders():
                     logger.warning(f"Could not parse reminder {reminder_doc.id}: {datetime_str}")
                     continue
 
+                logger.info(f"Reminder datetime: {reminder_datetime}")
+                logger.info("Checking if rmeinder is due")
                 if reminder_datetime <= now:
+                    logger.info("Reminder is due")
                     user_id = (
                         reminder_doc.reference
                         .parent.parent.id
