@@ -1,8 +1,9 @@
-name: AI Pesonal Assistant
+name: AI Personal Assistant
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "*/1 * * * *"
+    - cron: '*/1 * * * *'
 
 jobs:
   call-api:
@@ -10,5 +11,4 @@ jobs:
 
     steps:
       - name: Trigger reminder processor
-        run: |
-          curl https://ai-personal-assistant-1-e2iq.onrender.com/process-reminders
+        run: curl https://ai-personal-assistant-1-e2iq.onrender.com/process-reminders
