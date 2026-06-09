@@ -1,14 +1,21 @@
+import uuid
+import logging
+import datetime as dt_module
 from datetime import datetime, timedelta
 from firebase_admin import firestore
 from dateutil.relativedelta import relativedelta
-import logging
 from apscheduler.schedulers.background import BackgroundScheduler
+from firebase_config import db, firebase_initialized
 from reminder_service import (
     send_due_reminder_emails,
     cleanup_expired_reminders
-)   
+)
 
 logger = logging.getLogger("scheduler")
+
+# Unique identifier for this process instance
+SCHEDULER_ID = f"scheduler_{uuid.uuid4().hex[:8]}"
+has_lock = False
 
 scheduler = BackgroundScheduler()
 
@@ -21,6 +28,85 @@ WEEKDAY_MAP = {
     "saturday": 5, "sat": 5,
     "sunday": 6, "sun": 6
 }
+
+def check_and_renew_lock():
+    """
+    Checks and renews the distributed lock in Firestore.
+    If the lock document doesn't exist, we acquire it.
+    If we already own it, we update the heartbeat.
+    If someone else owns it but their heartbeat is > 90 seconds old, we take it over.
+    """
+    global has_lock
+    if not firebase_initialized or db is None:
+        logger.warning(f"Process {SCHEDULER_ID}: Firebase not initialized. Cannot check/renew scheduler lock.")
+        has_lock = False
+        return
+
+    try:
+        lock_ref = db.collection("metadata").document("scheduler_lock")
+
+        @firestore.transactional
+        def transact_lock(transaction):
+            snapshot = lock_ref.get(transaction=transaction)
+            now_utc = dt_module.datetime.now(dt_module.timezone.utc)
+
+            if not snapshot.exists:
+                # Document does not exist, acquire lock
+                transaction.set(lock_ref, {
+                    "owner_id": SCHEDULER_ID,
+                    "last_heartbeat": now_utc
+                })
+                return True
+
+            data = snapshot.to_dict() or {}
+            owner_id = data.get("owner_id")
+            last_heartbeat = data.get("last_heartbeat")
+
+            if owner_id == SCHEDULER_ID:
+                # We own the lock, update heartbeat
+                transaction.update(lock_ref, {
+                    "last_heartbeat": now_utc
+                })
+                return True
+
+            # If someone else owns it, check for heartbeat expiration (> 90 seconds)
+            if last_heartbeat:
+                # Ensure last_heartbeat is timezone-aware
+                if last_heartbeat.tzinfo is None:
+                    last_heartbeat = last_heartbeat.replace(tzinfo=dt_module.timezone.utc)
+                age = (now_utc - last_heartbeat).total_seconds()
+                if age > 90:
+                    transaction.set(lock_ref, {
+                        "owner_id": SCHEDULER_ID,
+                        "last_heartbeat": now_utc
+                    })
+                    logger.info(f"Scheduler lock expired for owner {owner_id}. Process {SCHEDULER_ID} is taking over.")
+                    return True
+            else:
+                # No heartbeat timestamp exists, acquire lock
+                transaction.set(lock_ref, {
+                    "owner_id": SCHEDULER_ID,
+                    "last_heartbeat": now_utc
+                })
+                return True
+
+            return False
+
+        transaction = db.transaction()
+        acquired = transact_lock(transaction)
+
+        if acquired:
+            if not has_lock:
+                logger.info(f"Process {SCHEDULER_ID} acquired/renewed the scheduler lock.")
+            has_lock = True
+        else:
+            if has_lock:
+                logger.info(f"Process {SCHEDULER_ID} lost/does not hold the scheduler lock.")
+            has_lock = False
+
+    except Exception as e:
+        logger.error(f"Error checking/renewing scheduler lock: {e}")
+        has_lock = False
 
 def calculate_next_occurrence_datetime(
     start_dt: datetime,
@@ -152,7 +238,6 @@ def get_normalized_recurrence(data: dict) -> tuple[str | None, int | None, str |
         if repeat_unit:
             unit_clean = str(repeat_unit).lower().strip()
             if not unit_clean.endswith("s"):
-                # Handle min -> minutes, hr -> hours etc.
                 if unit_clean.startswith("min"):
                     unit_clean = "minutes"
                 elif unit_clean.startswith("hour") or unit_clean.startswith("hr"):
@@ -171,7 +256,6 @@ def get_normalized_recurrence(data: dict) -> tuple[str | None, int | None, str |
         repeat_unit = "weekdays"
         if not repeat_weekdays:
             repeat_weekdays = []
-        # Ensure list of strings
         repeat_weekdays = [str(w).lower().strip() for w in repeat_weekdays]
 
     return repeat_type, repeat_interval, repeat_unit, repeat_weekdays
@@ -208,28 +292,29 @@ def calculate_next_occurrence(date_str, time_str, interval, unit):
         return None
 
 def process_recurring_reminders():
-    try:
-        db = firestore.client()
-        now = datetime.now()
+    if not has_lock:
+        return
 
+    if not firebase_initialized or db is None:
+        logger.warning("Firebase not initialized. Skipping process_recurring_reminders.")
+        return
+
+    try:
+        now = datetime.now()
         users = db.collection("users").stream()
 
         for user_doc in users:
             uid = user_doc.id
-
             reminders_ref = (
                 db.collection("users")
                 .document(uid)
                 .collection("reminders")
             )
-
             reminders = reminders_ref.stream()
 
             for reminder in reminders:
                 data = reminder.to_dict() or {}
-
                 text = data.get("text", "")
-
                 date_str = data.get("date")
                 time_str = data.get("time")
 
@@ -288,44 +373,68 @@ def process_recurring_reminders():
                 except Exception as e:
                     logger.error(f"Update failed: {e}")
 
-
     except Exception as e:
         logger.error(f"Scheduler crash: {e}")
 
 def heartbeat():
-    logger.info("Scheduler heartbeat")
+    logger.info(f"Scheduler heartbeat (Process {SCHEDULER_ID}, has_lock={has_lock})")
+
+# Wrappers for tasks from reminder_service to enforce lock constraints
+def run_send_due_reminder_emails():
+    if not has_lock:
+        return
+    send_due_reminder_emails()
+
+def run_cleanup_expired_reminders():
+    if not has_lock:
+        return
+    cleanup_expired_reminders()
 
 def start_scheduler():
     if not scheduler.running:
+        # Initial lock check synchronously before running
+        check_and_renew_lock()
+
+        # Check and renew lock every 30 seconds
+        scheduler.add_job(
+            check_and_renew_lock,
+            "interval",
+            seconds=30,
+            id="scheduler_lock_check",
+            max_instances=1
+        )
 
         scheduler.add_job(
             process_recurring_reminders,
             "interval",
             minutes=1,
-            id="recurring_reminders"
+            id="recurring_reminders",
+            max_instances=1
         )
 
         scheduler.add_job(
             heartbeat,
             "interval",
             minutes=1,
-            id="heartbeat"
+            id="heartbeat",
+            max_instances=1
         )
 
         scheduler.add_job(
-            send_due_reminder_emails,
+            run_send_due_reminder_emails,
             "interval",
             minutes=1,
-            id="send_emails"
+            id="send_emails",
+            max_instances=1
         )
 
         scheduler.add_job(
-            cleanup_expired_reminders,
+            run_cleanup_expired_reminders,
             "interval",
             minutes=1,
-            id="cleanup_reminders"
+            id="cleanup_reminders",
+            max_instances=1
         )
 
         scheduler.start()
-
-        logger.info("Scheduler started")
+        logger.info(f"Scheduler started in process: {SCHEDULER_ID}")

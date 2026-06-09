@@ -1,14 +1,16 @@
 import datetime
 import logging
-
-from firebase_admin import firestore
 from zoneinfo import ZoneInfo
-from firebase_config import db
+from firebase_config import db, firebase_initialized
 from email_service import send_email_notification
 
 logger = logging.getLogger(__name__)
 
 def send_due_reminder_emails():
+    if not firebase_initialized or db is None:
+        logger.warning("Firebase not initialized. Skipping send_due_reminder_emails.")
+        return
+
     try:
         logger.info("Checking due reminders..")
         now = datetime.datetime.now()
@@ -60,6 +62,10 @@ def send_due_reminder_emails():
 
 
 def cleanup_expired_reminders():
+    if not firebase_initialized or db is None:
+        logger.warning("Firebase not initialized. Skipping cleanup_expired_reminders.")
+        return
+
     try:
         logger.info("Starting expired reminder cleanup...")
 
