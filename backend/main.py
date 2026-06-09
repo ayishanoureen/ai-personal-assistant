@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 from firebase_config import db, firebase_initialized
+from firebase_admin import firestore
 from dotenv import load_dotenv
 import os
 import logging
