@@ -2294,16 +2294,22 @@ async def process_reminders():
                         reminder_doc.reference
                         .parent.parent.id
                     )
+                    logger.info(f"Getting user document: {user_id}")
                     user_doc = db.collection("users").document(user_id).get()
+                    logger.info("User document retrieved")
                     if not user_doc.exists:
+                        logger.info("User doc doesnt exist")
                         continue
                     user_data = user_doc.to_dict()
+                    logger.info("Reading user email")
                     email = user_data.get("email")
                     if not email:
                         logger.warning(f"User {user_id} has no email")
                         continue
                     reminder_text = data.get("text", "reminder")
+                    logger.info("Reading user name")
                     user_name = user_data.get("name", "User")
+                    logger.info("About to send email")
                     email_sent = send_email_notification(recipient_email=email, user_name=user_name, reminder_text=reminder_text, reminder_time=reminder_time)
                     if email_sent:
                         reminder_doc.reference.update({"email_sent": True, "sent_at": firestore.SERVER_TIMESTAMP})
