@@ -1,4 +1,3 @@
-# firebase_config.py
 import os
 import json
 import firebase_admin
@@ -8,6 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 db = None
+firebase_initialized = False   # ✅ ADD THIS
 
 try:
     cred_json = os.getenv("FIREBASE_CREDENTIALS")
@@ -18,6 +18,8 @@ try:
 
         firebase_admin.initialize_app(cred)
         db = firestore.client()
+
+        firebase_initialized = True   # ✅ SET TRUE HERE
 
         logger.info("Firebase initialized")
 
