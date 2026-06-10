@@ -44,11 +44,6 @@ def send_due_reminder_emails():
                 continue
                 
             repeat_type = reminder.get("repeat_type")
-            if repeat_type and repeat_type != "none":
-                logger.info(
-                    f"Skipping {reminder_id}: repeat_type={repeat_type}"
-                )
-                continue
                 
             reminder_date = reminder.get("date")
             reminder_time = reminder.get("time")
@@ -126,9 +121,28 @@ def _send_email_async_worker(doc_ref, reminder_id: str, email: str, name: str, t
             f"send_email_notification returned {success}"
         )
         if success:
+            doc_data = doc_ref.get().to_dict() or {}
 
             doc_ref.update({"email_sent": True})
-            logger.info(f"Database updated successfully for reminder {reminder_id} (email_sent=True).")
+
+            repeat_type = doc_data.get("repeat_type")
+            repeat_interval = doc_data.get("repeat_interval", 1)
+
+            if repeat_type == "interval":
+                from datetime import datetime, timedelta, timezone
+                from zoneinfo import ZoneInfo
+
+                kolkata_tz = ZoneInfo("Asia/Kolkata")
+                now = datetime.now(kolkata_tz)
+
+                next_date = now + timedelta(days=repeat_interval)
+
+                doc_ref.update({
+                    "date": next_date.strftime("%Y-%m-%d"),
+                    "email_sent": False
+                })
+
+            logger.info(f"Database updated successfully for reminder {reminder_id}.")
         else:
             logger.error(f"Failed to deliver email for reminder {reminder_id}. Flag NOT updated (will retry).")
             
