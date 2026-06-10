@@ -30,12 +30,6 @@ WEEKDAY_MAP = {
 }
 
 def check_and_renew_lock():
-    """
-    Checks and renews the distributed lock in Firestore.
-    If the lock document doesn't exist, we acquire it.
-    If we already own it, we update the heartbeat.
-    If someone else owns it but their heartbeat is > 90 seconds old, we take it over.
-    """
     global has_lock
     if not firebase_initialized or db is None:
         logger.warning(f"Process {SCHEDULER_ID}: Firebase not initialized. Cannot check/renew scheduler lock.")

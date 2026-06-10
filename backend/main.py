@@ -2084,9 +2084,13 @@ async def startup_event():
 
 @app.get("/test-email")
 def test_email():
-    return send_email_notification(
-        "ayishanoureen05@gmail.com",
-        "Ayisha",
-        "Test Reminder",
-        "09:22 AM"
-    )
+    try:
+        result = send_email_notification(
+            "your_email@gmail.com",
+            "Test User",
+            "Test Reminder",
+            "10:00 PM"
+        )
+        return {"success": result}
+    except Exception as e:
+        return {"error": str(e)}
