@@ -186,7 +186,7 @@ def cleanup_expired_reminders():
                     )
                     continue
 
-                if reminder_datetime < now:
+                if data.get("email_sent") == True and reminder_datetime < now - timedelta(minutes=5):
                     reminder_doc.reference.delete()
 
                     deleted_count += 1

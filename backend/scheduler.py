@@ -13,7 +13,7 @@ from reminder_service import (
 
 logger = logging.getLogger("scheduler")
 
-# Unique identifier for this process instance
+
 SCHEDULER_ID = f"scheduler_{uuid.uuid4().hex[:8]}"
 has_lock = False
 
@@ -45,7 +45,7 @@ def check_and_renew_lock():
             now_utc = dt_module.datetime.now(dt_module.timezone.utc)
 
             if not snapshot.exists:
-                # Document does not exist, acquire lock
+
                 transaction.set(lock_ref, {
                     "owner_id": SCHEDULER_ID,
                     "last_heartbeat": now_utc
@@ -57,15 +57,15 @@ def check_and_renew_lock():
             last_heartbeat = data.get("last_heartbeat")
 
             if owner_id == SCHEDULER_ID:
-                # We own the lock, update heartbeat
+
                 transaction.update(lock_ref, {
                     "last_heartbeat": now_utc
                 })
                 return True
 
-            # If someone else owns it, check for heartbeat expiration (> 90 seconds)
+
             if last_heartbeat:
-                # Ensure last_heartbeat is timezone-aware
+
                 if last_heartbeat.tzinfo is None:
                     last_heartbeat = last_heartbeat.replace(tzinfo=dt_module.timezone.utc)
                 age = (now_utc - last_heartbeat).total_seconds()
@@ -77,7 +77,7 @@ def check_and_renew_lock():
                     logger.info(f"Scheduler lock expired for owner {owner_id}. Process {SCHEDULER_ID} is taking over.")
                     return True
             else:
-                # No heartbeat timestamp exists, acquire lock
+   
                 transaction.set(lock_ref, {
                     "owner_id": SCHEDULER_ID,
                     "last_heartbeat": now_utc
@@ -219,7 +219,6 @@ def get_normalized_recurrence(data: dict) -> tuple[str | None, int | None, str |
                 repeat_interval = 1
                 repeat_unit = "weekdays"
 
-    # Further normalization of keys
     if repeat_type == "interval":
         if repeat_interval:
             try:
@@ -255,12 +254,12 @@ def get_normalized_recurrence(data: dict) -> tuple[str | None, int | None, str |
     return repeat_type, repeat_interval, repeat_unit, repeat_weekdays
 
 def calculate_next_occurrence(date_str, time_str, interval, unit):
-    # Backward compatibility wrapper
+
     try:
         current = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %I:%M %p")
         now = datetime.now()
         
-        # Determine repeat type
+
         unit_lower = (unit or "").lower().strip()
         weekday_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
                          "mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -373,7 +372,6 @@ def process_recurring_reminders():
 def heartbeat():
     logger.info(f"Scheduler heartbeat (Process {SCHEDULER_ID}, has_lock={has_lock})")
 
-# Wrappers for tasks from reminder_service to enforce lock constraints
 def run_send_due_reminder_emails():
     if not has_lock:
         return
@@ -386,10 +384,9 @@ def run_cleanup_expired_reminders():
 
 def start_scheduler():
     if not scheduler.running:
-        # Initial lock check synchronously before running
+
         check_and_renew_lock()
 
-        # Check and renew lock every 30 seconds
         scheduler.add_job(
             check_and_renew_lock,
             "interval",
