@@ -206,3 +206,9 @@ AI Personal Assistant
         except Exception as e:
             logger.exception(f"General SMTP Error: {e}")
             return False
+
+        finally:
+            try:
+                server.quit()
+            except:
+                pass
