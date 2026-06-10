@@ -1,16 +1,15 @@
 import os
-import smtplib
+import resend
 import logging
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
 
-EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+# Set API key once
+resend.api_key = os.getenv("RESEND_API_KEY")
 
-if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-    logger.warning("EMAIL_ADDRESS or EMAIL_PASSWORD environment variables are not set. Email notifications will fail.")
+if not resend.api_key:
+    logger.warning("RESEND_API_KEY is not set. Email notifications will fail.")
+
 
 def send_email_notification(
     recipient_email: str,
@@ -19,8 +18,8 @@ def send_email_notification(
     reminder_time: str
 ) -> bool:
 
-    if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        logger.error("Cannot send email. SMTP credentials are not configured.")
+    if not resend.api_key:
+        logger.error("Cannot send email. Resend API key is missing.")
         return False
 
     subject = f"🔔 Reminder: {reminder_text}"
@@ -41,80 +40,33 @@ AI Personal Assistant
 
     html_body = f"""
     <html>
-    <body>
-        <h2>Reminder Notification</h2>
-        <p>Hello {user_name},</p>
-        <p>This is your reminder:</p>
+        <body>
+            <h2>Reminder Notification</h2>
+            <p>Hello {user_name},</p>
+            <p>This is your reminder:</p>
 
-        <b>Task:</b> {reminder_text}<br>
-        <b>Time:</b> {reminder_time}
+            <p><b>Task:</b> {reminder_text}</p>
+            <p><b>Time:</b> {reminder_time}</p>
 
-        <p>Have a productive day!</p>
-    </body>
+            <p>Have a productive day!</p>
+        </body>
     </html>
     """
 
-    msg = MIMEMultipart("alternative")
-    msg["From"] = EMAIL_ADDRESS
-    msg["To"] = recipient_email
-    msg["Subject"] = subject
-
-    msg.attach(MIMEText(plain_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
-
-    server = None
-
     try:
-        logger.info("Opening SMTP connection...")
+        logger.info(f"Sending email via Resend to {recipient_email}")
 
-        server = smtplib.SMTP_SSL(
-            "smtp.gmail.com",
-            587,
-            timeout=30
-        )
+        response = resend.Emails.send({
+            "from": "AI Assistant <onboarding@resend.dev>",  # change later to verified domain
+            "to": [recipient_email],
+            "subject": subject,
+            "text": plain_body,
+            "html": html_body,
+        })
 
-        logger.info("SMTP connected")
-
-        logger.info(f"Logging in as {EMAIL_ADDRESS}")
-        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-
-        logger.info("Logged in successfully")
-
-        logger.info(f"Sending email to {recipient_email}")
-
-        server.sendmail(
-            EMAIL_ADDRESS,
-            recipient_email,
-            msg.as_string()
-        )
-
-        logger.info("Email sent successfully")
-
+        logger.info(f"Resend response: {response}")
         return True
 
-    except smtplib.SMTPAuthenticationError as e:
-        logger.exception(f"SMTP Authentication Error: {e}")
-        return False
-
-    except smtplib.SMTPConnectError as e:
-        logger.exception(f"SMTP Connect Error: {e}")
-        return False
-
-    except TimeoutError as e:
-        logger.exception(f"SMTP Timeout Error: {e}")
-        return False
-
-    except OSError as e:
-        logger.exception(f"Network Error: {e}")
-        return False
-
     except Exception as e:
-        logger.exception(f"General SMTP Error: {e}")
+        logger.exception(f"Failed to send email via Resend: {e}")
         return False
-
-    finally:
-        if server:
-            try:
-                server.quit()
-            except Exception:
-                pass
