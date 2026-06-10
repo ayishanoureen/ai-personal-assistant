@@ -2090,7 +2090,7 @@ def test_email():
             "ayishanoureen05@gmail.com",
             "Ayisha Noureen",
             "Test Reminder",
-            "09:58 PM"
+            "10:00 AM"
         )
         return {"success": result}
     except Exception as e:
