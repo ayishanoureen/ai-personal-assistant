@@ -88,7 +88,11 @@ def check_and_renew_lock():
 
         transaction = db.transaction()
         acquired = transact_lock(transaction)
-
+        logger.info(
+            f"SCHEDULER_ID={SCHEDULER_ID}, "
+            f"ACQUIRED={acquired}, "
+            f"HAS_LOCK_BEFORE={has_lock}"
+        )
         if acquired:
             if not has_lock:
                 logger.info(f"Process {SCHEDULER_ID} acquired/renewed the scheduler lock.")
