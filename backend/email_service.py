@@ -24,7 +24,6 @@ def send_email_notification(recipient_email: str, user_name: str, reminder_text:
     try:
         subject = f"🔔 Reminder: {reminder_text}"
 
-        # Plain-text version for email clients that do not support HTML
         plain_body = f"""
 Hi {user_name},
 
@@ -39,7 +38,6 @@ Best regards,
 AI Personal Assistant
 """
 
-        # Beautiful, modern responsive HTML template with gradients & modern typography
         html_body = f"""
         <!DOCTYPE html>
         <html>
@@ -155,17 +153,14 @@ AI Personal Assistant
         </html>
         """
 
-        # Set up a multipart message with alternative parts
         msg = MIMEMultipart("alternative")
         msg["From"] = EMAIL_ADDRESS
         msg["To"] = recipient_email
         msg["Subject"] = subject
 
-        # Attach alternative parts (plain-text must be attached first)
         msg.attach(MIMEText(plain_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
 
-        # Connect and send
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.sendmail(

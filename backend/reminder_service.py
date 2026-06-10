@@ -34,19 +34,16 @@ def send_due_reminder_emails():
         
         for reminder_doc in reminders:
             reminder_id = reminder_doc.id
-            
-            # Safely check if this reminder is currently in-flight
+
             with sending_lock:
                 if reminder_id in sending_reminder_ids:
                     continue
             
             reminder = reminder_doc.to_dict() or {}
             
-            # Skip if already marked as sent
             if reminder.get("email_sent", False):
                 continue
                 
-            # Skip recurring reminders (recurring scheduling details are updated separately)
             repeat_type = reminder.get("repeat_type")
             if repeat_type and repeat_type != "none":
                 continue
@@ -57,7 +54,7 @@ def send_due_reminder_emails():
                 continue
                 
             try:
-                # Parse date and time in the user's timezone (Asia/Kolkata)
+              
                 reminder_datetime = datetime.datetime.strptime(
                     f"{reminder_date} {reminder_time}",
                     "%Y-%m-%d %I:%M %p"
@@ -67,9 +64,9 @@ def send_due_reminder_emails():
                 logger.error(f"Failed to parse reminder datetime for {reminder_id}: {parse_err}")
                 continue
                 
-            # If the scheduled time is in the past/due, proceed to dispatch
+
             if reminder_datetime <= now:
-                # Retrieve parent user details
+
                 user_ref = reminder_doc.reference.parent.parent
                 user_doc = user_ref.get()
                 if not user_doc.exists:
@@ -81,12 +78,11 @@ def send_due_reminder_emails():
                 if not email:
                     logger.warning(f"No email found for user {user_ref.id}. Skipping reminder {reminder_id}.")
                     continue
-                
-                # Mark as in-flight
+
                 with sending_lock:
                     sending_reminder_ids.add(reminder_id)
                 
-                # Offload the SMTP network call to the worker pool
+
                 executor.submit(
                     _send_email_async_worker,
                     reminder_doc.reference,
@@ -109,11 +105,11 @@ def _send_email_async_worker(doc_ref, reminder_id: str, email: str, name: str, t
     try:
         logger.info(f"Initiating email send for reminder {reminder_id} to {email}...")
         
-        # Perform SMTP operations (blocks only this thread worker)
+
         success = send_email_notification(email, name, text, f"{reminder_date} at {reminder_time}")
         
         if success:
-            # Transactionally update flag only on success
+
             doc_ref.update({"email_sent": True})
             logger.info(f"Database updated successfully for reminder {reminder_id} (email_sent=True).")
         else:
@@ -122,7 +118,7 @@ def _send_email_async_worker(doc_ref, reminder_id: str, email: str, name: str, t
     except Exception as e:
         logger.error(f"Error in async email worker for reminder {reminder_id}: {e}")
     finally:
-        # Unlock the in-flight tracking ID
+
         with sending_lock:
             sending_reminder_ids.discard(reminder_id)
 
@@ -138,14 +134,13 @@ def cleanup_expired_reminders():
         now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
         deleted_count = 0
 
-        # Search ALL reminders across ALL users
+
         reminders = db.collection_group("reminders").stream()
 
         for reminder_doc in reminders:
             try:
                 data = reminder_doc.to_dict()
 
-                # Skip recurring reminders
                 repeat_type = data.get("repeat_type")
                 if repeat_type and repeat_type != "none":
                     continue

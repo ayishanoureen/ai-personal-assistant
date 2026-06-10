@@ -2081,3 +2081,12 @@ async def startup_event():
         logger.info("Startup complete")
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
+
+@app.get("/test-email")
+def test_email():
+    return send_email_notification(
+        "ayishanoureen05@gmail.com",
+        "Ayisha",
+        "Test Reminder",
+        "09:22 AM"
+    )
