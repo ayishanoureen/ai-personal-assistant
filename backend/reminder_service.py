@@ -87,18 +87,24 @@ def send_due_reminder_emails():
                     continue
 
                 with sending_lock:
-                    sending_reminder_ids.add(reminder_id)
-                
+                    if reminder_id in sending_reminder_ids:
+                        continue
 
-                _send_email_async_worker(
-                    reminder_doc.reference,
-                    reminder_id,
-                    email,
-                    name,
-                    reminder.get("text", "No title"),
-                    reminder_time,
-                    reminder_date
-                )
+                    sending_reminder_ids.add(reminder_id)
+
+                threading.Thread(
+                    target=_send_email_async_worker,
+                    args=(
+                        reminder_doc.reference,
+                        reminder_id,
+                        email,
+                        name,
+                        reminder.get("text", "No title"),
+                        reminder_time,
+                        reminder_date
+                    ),
+                    daemon=True
+                ).start()
             else:
                 logger.info(f"Reminder {reminder_id} is NOT due yet")
                 
