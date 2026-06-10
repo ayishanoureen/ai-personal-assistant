@@ -90,8 +90,7 @@ def send_due_reminder_emails():
                     sending_reminder_ids.add(reminder_id)
                 
 
-                executor.submit(
-                    _send_email_async_worker,
+                _send_email_async_worker(
                     reminder_doc.reference,
                     reminder_id,
                     email,
