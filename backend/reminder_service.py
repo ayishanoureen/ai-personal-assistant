@@ -16,11 +16,7 @@ sending_reminder_ids = set()
 sending_lock = threading.Lock()
 
 def send_due_reminder_emails():
-    """
-    Finds all reminders in the database that are due for email notifications,
-    parses their scheduled times in the Asia/Kolkata timezone, and handles
-    asynchronous non-blocking dispatch.
-    """
+    logger.info("========== EMAIL CHECK STARTED ==========")
     if not firebase_initialized or db is None:
         logger.warning("Firebase not initialized. Skipping send_due_reminder_emails.")
         return
@@ -34,23 +30,32 @@ def send_due_reminder_emails():
         
         for reminder_doc in reminders:
             reminder_id = reminder_doc.id
-
+            logger.info(f"Checking reminder: {reminder_id}")
             with sending_lock:
                 if reminder_id in sending_reminder_ids:
                     continue
             
             reminder = reminder_doc.to_dict() or {}
-            
+            logger.info(f"Reminder data: {reminder}")  
             if reminder.get("email_sent", False):
+                logger.info(
+                    f"Skipping {reminder_id}: email_sent=True"
+                )
                 continue
                 
             repeat_type = reminder.get("repeat_type")
             if repeat_type and repeat_type != "none":
+                logger.info(
+                    f"Skipping {reminder_id}: repeat_type={repeat_type}"
+                )
                 continue
                 
             reminder_date = reminder.get("date")
             reminder_time = reminder.get("time")
             if not reminder_date or not reminder_time:
+                logger.info(
+                    f"Skipping {reminder_id}: missing date or time"
+                )
                 continue
                 
             try:
@@ -66,7 +71,9 @@ def send_due_reminder_emails():
                 
 
             if reminder_datetime <= now:
-
+                logger.info(
+                    f"Reminder {reminder_id} is due (date={reminder_date}, time={reminder_time})"
+                )
                 user_ref = reminder_doc.reference.parent.parent
                 user_doc = user_ref.get()
                 if not user_doc.exists:
@@ -93,21 +100,26 @@ def send_due_reminder_emails():
                     reminder_time,
                     reminder_date
                 )
+            else:
+                logger.info(f"Reminder {reminder_id} is NOT due yet")
                 
     except Exception as e:
         logger.exception(f"send_due_reminder_emails loop failed: {e}")
 
 def _send_email_async_worker(doc_ref, reminder_id: str, email: str, name: str, text: str, reminder_time: str, reminder_date: str):
-    """
-    Background thread worker responsible for transmitting the email.
-    Only updates the firestore database flag once transmission is validated.
-    """
+    logger.info(
+        f"WORKER STARTED for reminder {reminder_id}"
+    )
     try:
         logger.info(f"Initiating email send for reminder {reminder_id} to {email}...")
         
-
+        logger.info(
+            f"Sending email to {email}"
+        )
         success = send_email_notification(email, name, text, f"{reminder_date} at {reminder_time}")
-        
+        logger.info(
+            f"send_email_notification returned {success}"
+        )
         if success:
 
             doc_ref.update({"email_sent": True})
