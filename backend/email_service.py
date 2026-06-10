@@ -69,7 +69,7 @@ AI Personal Assistant
 
         server = smtplib.SMTP_SSL(
             "smtp.gmail.com",
-            465,
+            587,
             timeout=30
         )
 

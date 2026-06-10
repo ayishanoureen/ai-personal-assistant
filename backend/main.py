@@ -2102,7 +2102,7 @@ def smtp_test():
 
     try:
         socket.create_connection(
-            ("smtp.gmail.com", 465),
+            ("smtp.gmail.com", 587),
             timeout=10
         )
 
