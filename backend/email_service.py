@@ -13,10 +13,7 @@ if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
     logger.warning("EMAIL_ADDRESS or EMAIL_PASSWORD environment variables are not set. Email notifications will fail.")
 
 def send_email_notification(recipient_email: str, user_name: str, reminder_text: str, reminder_time: str) -> bool:
-    """
-    Sends a styled HTML email notification via Gmail SMTP.
-    Uses an App Password for secure authentication.
-    """
+ 
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
         logger.error("Cannot send email. SMTP credentials are not configured.")
         return False
@@ -160,9 +157,16 @@ AI Personal Assistant
 
         msg.attach(MIMEText(plain_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
-
+        logger.info(
+            f"Opening SMPT connection"
+        )
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            logger.info("SMPT connected")
+            logger.info(
+                f"Logging in as {EMAIL_ADDRESS}"
+            )
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            logger.info("Logged in")
             server.sendmail(
                 EMAIL_ADDRESS,
                 recipient_email,
