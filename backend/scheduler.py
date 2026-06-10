@@ -289,8 +289,6 @@ def calculate_next_occurrence(date_str, time_str, interval, unit):
         return None
 
 def process_recurring_reminders():
-    if not has_lock:
-        return
 
     if not firebase_initialized or db is None:
         logger.warning("Firebase not initialized. Skipping process_recurring_reminders.")
@@ -377,13 +375,9 @@ def heartbeat():
     logger.info(f"Scheduler heartbeat (Process {SCHEDULER_ID}, has_lock={has_lock})")
 
 def run_send_due_reminder_emails():
-    if not has_lock:
-        return
     send_due_reminder_emails()
 
 def run_cleanup_expired_reminders():
-    if not has_lock:
-        return
     cleanup_expired_reminders()
 
 def start_scheduler():
