@@ -160,7 +160,7 @@ AI Personal Assistant
         logger.info(
             f"Opening SMPT connection"
         )
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
             logger.info("SMPT connected")
             logger.info(
                 f"Logging in as {EMAIL_ADDRESS}"
@@ -180,5 +180,5 @@ AI Personal Assistant
         logger.error("Failed to send email: SMTP Authentication failed. Please check your App Password settings.")
         return False
     except Exception as e:
-        logger.error(f"Failed to send email notification to {recipient_email}: {e}")
+        logger.exception(f"Failed to send email notification to {recipient_email}")
         return False
