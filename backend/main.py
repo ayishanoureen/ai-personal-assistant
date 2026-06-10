@@ -21,6 +21,7 @@ from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
 from scheduler import start_scheduler, calculate_next_occurrence_datetime
 from reminder_service import send_due_reminder_emails, cleanup_expired_reminders
+from email_service import send_email_notification
 from auth import get_current_user
 
 def validate_gemini_response(response_dict: dict) -> dict:
