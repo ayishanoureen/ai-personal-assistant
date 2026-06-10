@@ -402,11 +402,15 @@ export default function Home() {
 
     return (
         <div className="container">
-            <h1>AI Personal Assistant</h1>
-            <h2>Welcome, {userName}</h2>
-            <button onClick={handleLogout} className="logout-btn">
-                🚪 Logout
-            </button>
+            <div className="top-bar">
+                <div className="brand">
+                    <h1>AI Personal Assistant</h1>
+                    <p className="welcome-text">Welcome, {userName}</p>
+                </div>
+                <button onClick={handleLogout} className="logout-btn">
+                    🚪 Logout
+                </button>
+            </div>
             <div className="chat-box">
                 {chat.map((msg, index) => (
                     <div
