@@ -2095,3 +2095,18 @@ def test_email():
         return {"success": result}
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/smtp-test")
+def smtp_test():
+    import socket
+
+    try:
+        socket.create_connection(
+            ("smtp.gmail.com", 465),
+            timeout=10
+        )
+
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}

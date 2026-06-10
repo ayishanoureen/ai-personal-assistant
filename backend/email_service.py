@@ -157,28 +157,52 @@ AI Personal Assistant
 
         msg.attach(MIMEText(plain_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
-        logger.info(
-            f"Opening SMPT connection"
-        )
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
-            logger.info("SMPT connected")
-            logger.info(
-                f"Logging in as {EMAIL_ADDRESS}"
+        try:
+            logger.info("Opening SMTP connection...")
+
+            server = smtplib.SMTP_SSL(
+                "smtp.gmail.com",
+                465,
+                timeout=30
             )
+
+            logger.info("SMTP connected")
+
+            logger.info(f"Logging in as {EMAIL_ADDRESS}")
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-            logger.info("Logged in")
+
+            logger.info("Logged in successfully")
+
+            logger.info(f"Sending mail to {recipient_email}")
+
             server.sendmail(
                 EMAIL_ADDRESS,
                 recipient_email,
                 msg.as_string()
             )
 
-        logger.info(f"Successfully sent reminder email to {recipient_email} for task: '{reminder_text}'")
-        return True
+            logger.info("Email sent successfully")
 
-    except smtplib.SMTPAuthenticationError:
-        logger.error("Failed to send email: SMTP Authentication failed. Please check your App Password settings.")
-        return False
-    except Exception as e:
-        logger.exception(f"Failed to send email notification to {recipient_email}")
-        return False
+            server.quit()
+
+            return True
+
+        except smtplib.SMTPAuthenticationError as e:
+            logger.exception(f"SMTP Authentication Error: {e}")
+            return False
+
+        except smtplib.SMTPConnectError as e:
+            logger.exception(f"SMTP Connect Error: {e}")
+            return False
+
+        except TimeoutError as e:
+            logger.exception(f"SMTP Timeout Error: {e}")
+            return False
+
+        except OSError as e:
+            logger.exception(f"Network Error: {e}")
+            return False
+
+        except Exception as e:
+            logger.exception(f"General SMTP Error: {e}")
+            return False
