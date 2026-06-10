@@ -2087,10 +2087,10 @@ async def startup_event():
 def test_email():
     try:
         result = send_email_notification(
-            "your_email@gmail.com",
-            "Test User",
+            "ayishanoureen05@gmail.com",
+            "Ayisha Noureen",
             "Test Reminder",
-            "10:00 PM"
+            "09:58 PM"
         )
         return {"success": result}
     except Exception as e:
