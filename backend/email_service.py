@@ -157,6 +157,8 @@ AI Personal Assistant
 
         msg.attach(MIMEText(plain_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
+        server = None
+
         try:
             logger.info("Opening SMTP connection...")
 
@@ -183,8 +185,6 @@ AI Personal Assistant
 
             logger.info("Email sent successfully")
 
-            server.quit()
-
             return True
 
         except smtplib.SMTPAuthenticationError as e:
@@ -208,7 +208,8 @@ AI Personal Assistant
             return False
 
         finally:
-            try:
-                server.quit()
-            except:
-                pass
+            if server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
