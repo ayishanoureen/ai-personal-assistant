@@ -2096,6 +2096,6 @@ def test_email():
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/health")
-def health_check():
+@app.api_route("/health", methods=["GET", "HEAD"])
+def health():
     return {"status": "ok"}
