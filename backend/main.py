@@ -576,6 +576,9 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
         parsed_time = datetime.datetime.strptime(time_str, "%I:%M %p").time()
         parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
         reminder_dt = datetime.datetime.combine(parsed_date, parsed_time)
+        reminder_dt = reminder_dt.replace(
+            tzinfo=ZoneInfo("Asia/Kolkata")
+        )
     except Exception:
         reminder_dt = datetime.datetime.combine(ref_now.date(), datetime.time(9, 0))
         
@@ -1979,7 +1982,7 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
         parsed_date = datetime.datetime.strptime(reminder_date, "%Y-%m-%d").date()
         reminder_dt = datetime.datetime.combine(parsed_date, parsed_time)
         
-        ref_now = datetime.datetime.now()
+        ref_now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
         is_recurring = repeat_type is not None
         recurrence_data = {
             "repeat_type": repeat_type,
