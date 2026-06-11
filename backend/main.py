@@ -595,7 +595,7 @@ def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> d
 
 
 def extract_reminder_details(message: str):
-    res = parse_reminder_message(message, datetime.datetime.now())
+    res = parse_reminder_message(message, datetime.datetime.now(ZoneInfo("Asia/Kolkata")))
     return res["text"], res["date"], res["time"]
 
 
