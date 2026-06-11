@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { getAuth, signOut } from "firebase/auth";
 
-const INACTIVITY_LIMIT = 5;
+const INACTIVITY_LIMIT = 5 * 1000;
 
 export default function useAutoLogout() {
     useEffect(() => {
