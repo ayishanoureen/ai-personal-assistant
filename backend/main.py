@@ -516,7 +516,7 @@ def make_future_datetime(
 
 def parse_reminder_message(message: str, ref_now: datetime.datetime = None) -> dict:
     if ref_now is None:
-        ref_now = datetime.datetime.now()
+        ref_now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
         
     repeat_data, cleaned_message = extract_recurrence_and_clean(message)
     message_lower = cleaned_message.lower()
