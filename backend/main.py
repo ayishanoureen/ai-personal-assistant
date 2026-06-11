@@ -364,8 +364,7 @@ WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturd
 
 def extract_recurrence_and_clean(message: str) -> tuple[dict | None, str]:
     msg_lower = message.lower()
-    
-    # 1. Weekday shortcut: "every weekday(s)"
+
     weekday_shortcut_match = re.search(r"\bevery\s+weekdays?\b|\bon\s+weekdays\b", msg_lower)
     if weekday_shortcut_match:
         span = weekday_shortcut_match.span()
@@ -377,7 +376,6 @@ def extract_recurrence_and_clean(message: str) -> tuple[dict | None, str]:
             "repeat_weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday"]
         }, cleaned
 
-    # 2. Weekdays list
     weekday_pattern = r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)s?\b"
     matches = list(re.finditer(weekday_pattern, msg_lower))
     if matches:
@@ -428,7 +426,6 @@ def extract_recurrence_and_clean(message: str) -> tuple[dict | None, str]:
                 "repeat_weekdays": unique_weekdays
             }, cleaned
 
-    # 3. Interval: "every X minutes/hours/days/weeks/months"
     interval_match_1 = re.search(r"\bevery\s+(\d+)\s*(minute|min|hour|hr|day|week|month)s?\b", msg_lower)
     if interval_match_1:
         val = int(interval_match_1.group(1))
@@ -448,7 +445,6 @@ def extract_recurrence_and_clean(message: str) -> tuple[dict | None, str]:
             "repeat_weekdays": []
         }, cleaned
 
-    # 4. Singular interval: "every minute/hour/day/week/month"
     interval_match_2 = re.search(r"\bevery\s+(minute|min|hour|hr|day|week|month)s?\b", msg_lower)
     if interval_match_2:
         unit = interval_match_2.group(1)
@@ -467,7 +463,6 @@ def extract_recurrence_and_clean(message: str) -> tuple[dict | None, str]:
             "repeat_weekdays": []
         }, cleaned
 
-    # 5. Shortcuts: "daily", "weekly", "monthly"
     shortcut_match = re.search(r"\b(daily|weekly|monthly)\b", msg_lower)
     if shortcut_match:
         word = shortcut_match.group(1)
@@ -813,7 +808,6 @@ def extract_repeat_type(message):
         "thursday","friday","saturday","sunday"
     ]
 
-    # 1. every X days/weeks etc
     match = re.search(r"every\s+(\d+)\s+(hour|day|week|month)s?", msg)
     if match:
         return {
@@ -822,7 +816,6 @@ def extract_repeat_type(message):
             "repeat_unit": match.group(2)
         }
 
-    # 2. daily/weekly/monthly
     if "daily" in msg or "every day" in msg:
         return {"type": "interval", "interval": 1, "unit": "days", "weekdays": []}
 
@@ -832,7 +825,6 @@ def extract_repeat_type(message):
     if "monthly" in msg or "every month" in msg:
         return {"type": "interval", "interval": 1, "unit": "months", "weekdays": []}
 
-    # 3. weekday recurrence (IMPORTANT FIX)
     found_days = [d for d in weekdays if f"every {d}" in msg or f"on {d}" in msg]
 
     if found_days:
@@ -957,7 +949,6 @@ async def chat(
                         db_repeat_unit = data.get("repeat_unit")
                         db_repeat_weekdays = data.get("repeat_weekdays")
                         
-                        # Compare normalized task + date + time case-insensitively using fuzzy matching
                         texts_match = is_fuzzy_match(db_text, reminder_text)
                         times_match = normalize_time(db_time) == normalize_time(reminder_time)
                         
@@ -1346,7 +1337,6 @@ async def chat(
             }
 
         elif intent == "delete_single_reminder":
-            # Clean deletion prefixes case-insensitively
             cleaned = user_message.strip()
             
             delete_prefixes = [
@@ -1388,8 +1378,7 @@ async def chat(
                     
             extracted_task = cleaned
             extracted_time = ""
-            
-            # Time patterns from extract_reminder_details to extract time separately
+     
             time_patterns = [
                 r"\b(in|after)\s+\d+\s+(minutes?|mins?|hours?|hrs?|days?)\b",
                 r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
@@ -1416,7 +1405,6 @@ async def chat(
                     extracted_task = re.sub(pattern, "", extracted_task, flags=re.IGNORECASE).strip()
                     break
             
-            # Clean up residual connector words and punctuation from task
             extracted_task = re.sub(r'^(to|for|at|on)\s+', '', extracted_task, flags=re.IGNORECASE)
             extracted_task = re.sub(r'\s+(to|for|at|on)$', '', extracted_task, flags=re.IGNORECASE)
             extracted_task = extracted_task.strip().rstrip('.!?,')
@@ -1424,7 +1412,7 @@ async def chat(
             deleted_count = 0
             if firebase_initialized and db and extracted_task:
                 try:
-                    # Find all matches matching the task case-insensitively using fuzzy matching
+                    
                     matches = []
                     docs = db.collection("users").document(uid).collection("reminders").stream()
                     for doc in docs:
@@ -1443,7 +1431,7 @@ async def chat(
                             
                     doc_to_delete = None
                     if len(matches) > 1 and not extracted_time:
-                        # Multiple matches found without time specifier, return list of matches to user
+                        
                         match_details = []
                         for idx, m_item in enumerate(matches, 1):
                             time_disp = f" at {m_item['time']}" if m_item['time'] else ""
@@ -1474,7 +1462,6 @@ async def chat(
                             doc_to_delete = matches[0]["doc"]
                             
                     if doc_to_delete:
-                        # Fetch values for logging before deleting
                         deleted_data = doc_to_delete.get().to_dict() or {}
                         deleted_text = deleted_data.get("text", "")
                         deleted_time = deleted_data.get("time", "")
@@ -1668,8 +1655,6 @@ Known User Information:
         }
 
 
-# --- Pydantic Models for REST endpoints ---
-
 def map_repeat_type_to_frontend(
     repeat_type: str | None,
     repeat_interval: int | None,
@@ -1712,7 +1697,6 @@ class ProfileRequest(BaseModel):
     name: str
     email: str
 
-# --- REST CRUD Endpoints ---
 
 def parse_exact_date(message: str) -> str | None:
     message_lower = message.lower()
@@ -1911,7 +1895,6 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
     repeat_unit = data.repeat_unit
     repeat_weekdays = data.repeat_weekdays
     
-    # Normalize frontend select values (none, daily, weekly, monthly)
     if repeat_type:
         repeat_type_lower = repeat_type.lower().strip()
         if repeat_type_lower == "none":
@@ -1972,7 +1955,6 @@ def update_reminder(reminder_id: str, data: ReminderUpdate, uid: str = Depends(g
         repeat_unit = None
         repeat_weekdays = None
         
-    # Get existing date/time if not supplied and roll forward if in the past
     existing_data = doc.to_dict() or {}
     reminder_date = data.date or existing_data.get("date") or datetime.datetime.now().strftime("%Y-%m-%d")
     reminder_time = normalize_time(time_val)
@@ -2086,18 +2068,6 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
 
-@app.get("/test-email")
-def test_email():
-    try:
-        result = send_email_notification(
-            "ayishanoureen05@gmail.com",
-            "Ayisha Noureen",
-            "Test Reminder",
-            "10:00 AM"
-        )
-        return {"success": result}
-    except Exception as e:
-        return {"error": str(e)}
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():

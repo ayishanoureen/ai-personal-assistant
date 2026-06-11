@@ -6,7 +6,6 @@ import logging
 
 logger = logging.getLogger("auth")
 
-# Setup HTTPBearer dependency with auto_error=False to allow custom 401 handling
 security = HTTPBearer(auto_error=False)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
@@ -24,7 +23,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         )
 
     try:
-        # Verify the Firebase ID Token
+
         decoded_token = auth.verify_id_token(token)
         uid = decoded_token.get("uid")
         if not uid:

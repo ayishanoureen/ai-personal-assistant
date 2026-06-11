@@ -4,7 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Set API key once
 resend.api_key = os.getenv("RESEND_API_KEY")
 
 if not resend.api_key:
@@ -57,7 +56,7 @@ AI Personal Assistant
         logger.info(f"Sending email via Resend to {recipient_email}")
 
         response = resend.Emails.send({
-            "from": "AI Assistant <onboarding@resend.dev>",  # change later to verified domain
+            "from": "AI Assistant <onboarding@resend.dev>",  
             "to": [recipient_email],
             "subject": subject,
             "text": plain_body,
