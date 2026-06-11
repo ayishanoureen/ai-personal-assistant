@@ -314,7 +314,7 @@ def detect_intent_locally(message: str) -> str | None:
 
 
 def parse_date_robustly(message: str, ref_now: datetime.datetime = None) -> str:
-    now = ref_now or datetime.datetime.now()
+    now = ref_now or datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
     message_lower = message.lower()
     days_match = re.search(r'\b(?:in|after)\s+(\d+)\s+days?\b', message_lower)
     if days_match:
