@@ -913,7 +913,7 @@ async def chat(
             save_user_memory(uid, memory_data)
 
         if intent == "save_reminder":
-            ref_now = datetime.datetime.now()
+            ref_now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
             res = parse_reminder_message(user_message, ref_now)
             
             reminder_text = res["text"]
